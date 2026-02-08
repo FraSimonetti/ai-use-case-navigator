@@ -9,7 +9,7 @@ export default function HomePage() {
         {/* Hero Section */}
         <div className="text-center space-y-3 sm:space-y-4">
           <div
-            className="mx-auto w-full max-w-md sm:max-w-xl lg:max-w-2xl h-28 sm:h-40 lg:h-48 bg-center bg-contain bg-no-repeat"
+            className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl h-40 sm:h-56 lg:h-72 bg-center bg-contain bg-no-repeat"
             style={{
               backgroundImage: 'url(/RegolAI.png)'
             }}

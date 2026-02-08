@@ -35,7 +35,7 @@ export function Sidebar() {
       {/* Logo & Brand */}
       <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600 relative overflow-hidden">
         <div
-          className="h-32 mb-4 bg-center bg-contain bg-no-repeat"
+          className="h-40 mb-4 bg-center bg-contain bg-no-repeat"
           style={{
             backgroundImage: 'url(/RegolAI.png)'
           }}
