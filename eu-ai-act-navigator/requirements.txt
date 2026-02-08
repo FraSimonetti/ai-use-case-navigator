@@ -1,3 +1,6 @@
+# Root requirements file for Railway deployment
+# This file ensures Railway can detect the Python application
+
 # Core API dependencies
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
