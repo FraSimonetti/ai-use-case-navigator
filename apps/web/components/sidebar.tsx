@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import Image from 'next/image'
 
 const NAV_ITEMS = [
   {
@@ -33,13 +34,17 @@ export function Sidebar() {
     <aside className="w-72 border-r bg-gradient-to-b from-slate-50 to-white hidden lg:flex flex-col shadow-sm">
       {/* Logo & Brand */}
       <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
-        <div className="mb-2">
-          <h2 className="text-lg font-bold text-white">EU AI Act Navigator</h2>
-          <p className="text-xs text-blue-100">
-            Regulatory Compliance Platform
-          </p>
+        <div className="mb-2 flex items-center justify-center">
+          <img
+            src="/RegolAI.png"
+            alt="RegolAI"
+            className="h-16 w-auto object-contain"
+          />
         </div>
-        <div className="flex gap-1 text-xs">
+        <p className="text-xs text-blue-100 text-center mb-3">
+          Regulatory Compliance Platform
+        </p>
+        <div className="flex gap-1 text-xs justify-center">
           <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">AI Act</span>
           <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">GDPR</span>
           <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">DORA</span>
