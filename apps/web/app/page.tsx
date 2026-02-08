@@ -7,7 +7,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl w-full space-y-6 sm:space-y-8 lg:space-y-10">
         {/* Hero Section */}
-        <div className="text-center space-y-3 sm:space-y-4">
+        <div className="text-center space-y-2 sm:space-y-3">
           <div
             className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl h-40 sm:h-56 lg:h-72 bg-center bg-contain bg-no-repeat"
             style={{
@@ -97,7 +97,7 @@ export default function HomePage() {
                 </ul>
               </div>
 
-              <Button asChild variant="outline" className="w-full border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-semibold py-5 sm:py-6 text-base sm:text-lg">
+              <Button asChild className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg">
                 <Link href="/obligations">Analyze Use Cases</Link>
               </Button>
             </CardContent>

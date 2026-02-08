@@ -84,25 +84,9 @@ export function Sidebar() {
 
       {/* Footer Info */}
       <div className="p-4 border-t bg-gray-50">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600">Total Use Cases</span>
-            <span className="font-bold text-blue-600">161</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600">Regulations Mapped</span>
-            <span className="font-bold text-green-600">3</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600">RAG Documents</span>
-            <span className="font-bold text-purple-600">1,149</span>
-          </div>
-        </div>
-        <div className="mt-3 pt-3 border-t">
-          <p className="text-xs text-gray-500 text-center">
-            Updated: February 2026
-          </p>
-        </div>
+        <p className="text-xs text-gray-500 text-center">
+          Updated: February 2026
+        </p>
       </div>
     </aside>
   )

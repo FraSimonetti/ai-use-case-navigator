@@ -489,7 +489,7 @@ function WelcomeScreen({ hasConfig, onExampleClick }: WelcomeScreenProps) {
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center p-8 max-w-5xl mx-auto">
+    <div className="flex flex-col items-center justify-center h-full text-center p-8 pt-12 max-w-5xl mx-auto">
       <div className="mb-8">
         <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl shadow-xl">
           Q&A
