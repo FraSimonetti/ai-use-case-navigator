@@ -28,14 +28,14 @@ export function ChatInput({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3">
+    <form onSubmit={handleSubmit} className="flex gap-2 sm:gap-3">
       <div className="flex-1 relative">
         <Input
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={placeholder ?? 'Ask a question...'}
           disabled={isLoading || disabled}
-          className="pr-12 h-12 text-base border-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl shadow-sm"
+          className="pr-12 h-11 sm:h-12 text-sm sm:text-base border-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl shadow-sm"
         />
         {value && !isLoading && (
           <button
@@ -50,15 +50,15 @@ export function ChatInput({
       <Button
         type="submit"
         disabled={isLoading || disabled || !value.trim()}
-        className="h-12 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all"
+        className="h-11 sm:h-12 px-4 sm:px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all"
       >
         {isLoading ? (
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-1 sm:gap-2 text-sm sm:text-base">
             <span className="animate-spin">⏳</span>
-            <span>Sending...</span>
+            <span className="hidden sm:inline">Sending...</span>
           </span>
         ) : (
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-1 sm:gap-2 text-sm sm:text-base">
             <span>Send</span>
             <span>→</span>
           </span>

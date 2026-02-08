@@ -275,7 +275,7 @@ export default function ChatPage() {
         )}
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-auto p-6 space-y-4 bg-transparent">
+        <div className="flex-1 overflow-auto p-3 sm:p-6 pb-32 sm:pb-6 space-y-4 bg-transparent">
           {messages.length === 0 ? (
             <WelcomeScreen hasConfig={hasConfig} onExampleClick={handleExampleClick} />
           ) : (
@@ -298,8 +298,8 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Input Area */}
-        <div className="border-t-2 border-blue-200 p-6 bg-white shadow-lg">
+        {/* Input Area - Fixed on mobile, normal on desktop */}
+        <div className="fixed sm:relative bottom-0 left-0 right-0 sm:border-t-2 border-t border-blue-200 p-3 sm:p-6 bg-white shadow-lg z-40">
           <ChatInput
             onSubmit={handleSubmit}
             isLoading={isLoading}
@@ -309,7 +309,7 @@ export default function ChatPage() {
             }
             disabled={!hasConfig}
           />
-          <p className="text-xs text-gray-500 mt-3 text-center">
+          <p className="text-xs text-gray-500 mt-2 sm:mt-3 text-center hidden sm:block">
             Responses are AI-generated for guidance only. Always consult legal counsel for compliance decisions.
           </p>
         </div>
