@@ -25,7 +25,7 @@ export function MobileNav() {
             <img
               src="/RegolAI.png"
               alt="RegolAI"
-              className="h-10 w-auto object-contain"
+              className="h-12 w-auto object-contain"
             />
           </div>
 

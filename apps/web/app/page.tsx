@@ -7,9 +7,9 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-8">
       <div className="max-w-5xl w-full space-y-8 sm:space-y-12">
         {/* Hero Section */}
-        <div className="text-center space-y-3 sm:space-y-4">
+        <div className="text-center space-y-4 sm:space-y-6">
           <div
-            className="mx-auto w-72 sm:w-96 lg:w-[480px] h-28 sm:h-36 lg:h-40 mb-4 bg-center bg-contain bg-no-repeat"
+            className="mx-auto w-80 sm:w-[480px] lg:w-[600px] h-32 sm:h-48 lg:h-60 mb-4 bg-center bg-contain bg-no-repeat"
             style={{
               backgroundImage: 'url(/RegolAI.png)'
             }}
