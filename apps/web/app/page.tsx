@@ -4,31 +4,31 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-8">
-      <div className="max-w-5xl w-full space-y-8 sm:space-y-12">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      <div className="max-w-6xl w-full space-y-6 sm:space-y-8 lg:space-y-10">
         {/* Hero Section */}
-        <div className="text-center space-y-4 sm:space-y-6">
+        <div className="text-center space-y-3 sm:space-y-4">
           <div
-            className="mx-auto w-80 sm:w-[480px] lg:w-[600px] h-32 sm:h-48 lg:h-60 mb-4 bg-center bg-contain bg-no-repeat"
+            className="mx-auto w-full max-w-md sm:max-w-xl lg:max-w-2xl h-28 sm:h-40 lg:h-48 bg-center bg-contain bg-no-repeat"
             style={{
               backgroundImage: 'url(/RegolAI.png)'
             }}
           ></div>
-          <p className="text-base sm:text-lg lg:text-xl text-gray-600 max-w-3xl mx-auto px-4">
+          <p className="text-sm sm:text-base lg:text-lg text-gray-600 max-w-3xl mx-auto px-4">
             Professional compliance platform for navigating EU AI Act, GDPR, and DORA obligations with precision
           </p>
         </div>
 
         {/* Main Features */}
-        <div className="grid gap-8 md:grid-cols-2">
+        <div className="grid gap-6 md:gap-8 md:grid-cols-2 max-w-5xl mx-auto">
           {/* Smart Q&A */}
           <Card className="border-2 border-blue-200 shadow-xl hover:shadow-2xl transition-all bg-white">
-            <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50">
-              <CardTitle className="text-2xl font-bold text-gray-900">
+            <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 p-4 sm:p-6">
+              <CardTitle className="text-xl sm:text-2xl font-bold text-gray-900">
                 Smart Q&A
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-8 space-y-6">
+            <CardContent className="p-5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
               <p className="text-gray-700 leading-relaxed">
                 Ask questions about AI Act compliance and receive expert answers with direct citations from official EUR-Lex sources.
                 Powered by RAG technology over 1,149 regulatory documents.
@@ -56,7 +56,7 @@ export default function HomePage() {
                 </ul>
               </div>
 
-              <Button asChild className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-6 text-lg">
+              <Button asChild className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg">
                 <Link href="/chat">Start Smart Q&A</Link>
               </Button>
             </CardContent>
@@ -64,12 +64,12 @@ export default function HomePage() {
 
           {/* Use Case Analysis */}
           <Card className="border-2 border-indigo-200 shadow-xl hover:shadow-2xl transition-all bg-white">
-            <CardHeader className="border-b bg-gradient-to-r from-indigo-50 to-purple-50">
-              <CardTitle className="text-2xl font-bold text-gray-900">
+            <CardHeader className="border-b bg-gradient-to-r from-indigo-50 to-purple-50 p-4 sm:p-6">
+              <CardTitle className="text-xl sm:text-2xl font-bold text-gray-900">
                 Use Case Analysis
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-8 space-y-6">
+            <CardContent className="p-5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
               <p className="text-gray-700 leading-relaxed">
                 Select from 161 pre-mapped AI use cases or describe your own to discover all applicable regulatory obligations
                 across AI Act, GDPR, and DORA with zero-error validation.
@@ -97,7 +97,7 @@ export default function HomePage() {
                 </ul>
               </div>
 
-              <Button asChild variant="outline" className="w-full border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-semibold py-6 text-lg">
+              <Button asChild variant="outline" className="w-full border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-semibold py-5 sm:py-6 text-base sm:text-lg">
                 <Link href="/obligations">Analyze Use Cases</Link>
               </Button>
             </CardContent>
