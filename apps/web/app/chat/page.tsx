@@ -158,25 +158,25 @@ export default function ChatPage() {
     <div className="flex h-full bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       <div className="flex-1 flex flex-col">
         {/* Header with Context and Controls */}
-        <div className="border-b-2 border-blue-200 px-6 py-4 flex items-center justify-between bg-gradient-to-r from-white to-blue-50 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-md text-xs">
+        <div className="border-b-2 border-blue-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 sm:justify-between bg-gradient-to-r from-white to-blue-50 shadow-sm">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-md text-xs">
                 Q&A
               </div>
               <div>
-                <h1 className="font-bold text-gray-900 text-lg">Smart Q&A</h1>
-                <p className="text-xs text-gray-500">RAG-powered regulatory assistant</p>
+                <h1 className="font-bold text-gray-900 text-base sm:text-lg">Smart Q&A</h1>
+                <p className="text-xs text-gray-500 hidden sm:block">RAG-powered regulatory assistant</p>
               </div>
             </div>
             <button
               onClick={() => setShowContextPanel(!showContextPanel)}
-              className="text-xs px-3 py-2 rounded-lg bg-white border-2 border-gray-300 hover:border-blue-400 hover:bg-blue-50 flex items-center gap-2 transition-all shadow-sm"
+              className="text-xs px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-white border-2 border-gray-300 hover:border-blue-400 hover:bg-blue-50 flex items-center gap-1 sm:gap-2 transition-all shadow-sm whitespace-nowrap"
             >
-              <span className="text-gray-600">Context:</span>
-              <span className="font-semibold text-gray-900">{userContext.role}</span>
-              <span className="text-gray-400">@</span>
-              <span className="font-semibold text-blue-600">{userContext.institution_type}</span>
+              <span className="text-gray-600 hidden sm:inline">Context:</span>
+              <span className="font-semibold text-gray-900 text-xs">{userContext.role}</span>
+              <span className="text-gray-400 hidden sm:inline">@</span>
+              <span className="font-semibold text-blue-600 text-xs hidden sm:inline">{userContext.institution_type}</span>
               <span className="ml-1 text-gray-400">{showContextPanel ? '▲' : '▼'}</span>
             </button>
           </div>
