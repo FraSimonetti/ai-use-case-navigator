@@ -33,13 +33,10 @@ export function Sidebar() {
   return (
     <aside className="w-72 border-r bg-gradient-to-b from-slate-50 to-white hidden lg:flex flex-col shadow-sm">
       {/* Logo & Brand */}
-      <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600 relative overflow-hidden">
-        <div
-          className="h-40 mb-4 bg-center bg-contain bg-no-repeat"
-          style={{
-            backgroundImage: 'url(/RegolAI.png)'
-          }}
-        ></div>
+      <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
+        <h1 className="text-3xl font-bold text-white text-center mb-3">
+          RegolAI
+        </h1>
         <p className="text-xs text-blue-100 text-center mb-3">
           Regulatory Compliance Platform
         </p>

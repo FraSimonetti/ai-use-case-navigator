@@ -7,14 +7,11 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl w-full space-y-6 sm:space-y-8 lg:space-y-10">
         {/* Hero Section */}
-        <div className="text-center space-y-2 sm:space-y-3">
-          <div
-            className="mx-auto w-full max-w-lg sm:max-w-2xl lg:max-w-4xl h-40 sm:h-56 lg:h-72 bg-center bg-contain bg-no-repeat"
-            style={{
-              backgroundImage: 'url(/RegolAI.png)'
-            }}
-          ></div>
-          <p className="text-sm sm:text-base lg:text-lg text-gray-600 max-w-3xl mx-auto px-4">
+        <div className="text-center space-y-4 sm:space-y-6">
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            RegolAI
+          </h1>
+          <p className="text-base sm:text-lg lg:text-xl text-gray-600 max-w-3xl mx-auto px-4">
             Professional compliance platform for navigating EU AI Act, GDPR, and DORA obligations with precision
           </p>
         </div>

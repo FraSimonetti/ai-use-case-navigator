@@ -20,13 +20,9 @@ export function MobileNav() {
     <div className="lg:hidden">
       {/* Mobile Header */}
       <header className="sticky top-0 z-50 border-b bg-white shadow-sm">
-        <div className="flex items-center justify-between p-3">
+        <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-2">
-            <img
-              src="/RegolAI.png"
-              alt="RegolAI"
-              className="h-14 w-auto object-contain"
-            />
+            <h1 className="text-xl font-bold text-gray-900">RegolAI</h1>
           </div>
 
           {/* Hamburger Button */}
