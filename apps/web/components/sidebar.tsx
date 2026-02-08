@@ -33,21 +33,27 @@ export function Sidebar() {
   return (
     <aside className="w-72 border-r bg-gradient-to-b from-slate-50 to-white hidden lg:flex flex-col shadow-sm">
       {/* Logo & Brand */}
-      <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
-        <div className="mb-2 flex items-center justify-center">
-          <img
-            src="/RegolAI.png"
-            alt="RegolAI"
-            className="h-16 w-auto object-contain"
-          />
-        </div>
-        <p className="text-xs text-blue-100 text-center mb-3">
-          Regulatory Compliance Platform
-        </p>
-        <div className="flex gap-1 text-xs justify-center">
-          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">AI Act</span>
-          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">GDPR</span>
-          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">DORA</span>
+      <div
+        className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600 relative overflow-hidden"
+        style={{
+          backgroundImage: 'url(/RegolAI.png)',
+          backgroundPosition: 'center',
+          backgroundSize: 'contain',
+          backgroundRepeat: 'no-repeat',
+          minHeight: '140px'
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/90 to-indigo-600/90"></div>
+        <div className="relative z-10">
+          <div className="h-16 mb-2"></div>
+          <p className="text-xs text-blue-100 text-center mb-3">
+            Regulatory Compliance Platform
+          </p>
+          <div className="flex gap-1 text-xs justify-center">
+            <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">AI Act</span>
+            <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">GDPR</span>
+            <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">DORA</span>
+          </div>
         </div>
       </div>
 

@@ -8,9 +8,17 @@ export default function HomePage() {
       <div className="max-w-5xl w-full space-y-8 sm:space-y-12">
         {/* Hero Section */}
         <div className="text-center space-y-3 sm:space-y-4">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-            RegolAI
-          </h1>
+          <div
+            className="relative mx-auto w-64 sm:w-80 lg:w-96 h-24 sm:h-28 lg:h-32 mb-4"
+            style={{
+              backgroundImage: 'url(/RegolAI.png)',
+              backgroundPosition: 'center',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat'
+            }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-indigo-600/10 rounded-2xl"></div>
+          </div>
           <p className="text-base sm:text-lg lg:text-xl text-gray-600 max-w-3xl mx-auto px-4">
             Professional compliance platform for navigating EU AI Act, GDPR, and DORA obligations with precision
           </p>
