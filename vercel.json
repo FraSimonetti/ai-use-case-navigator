@@ -3,13 +3,5 @@
   "outputDirectory": "apps/web/.next",
   "framework": "nextjs",
   "installCommand": "cd apps/web && npm install",
-  "devCommand": "cd apps/web && npm run dev",
-  "env": {
-    "NEXT_PUBLIC_API_URL": "@api-url"
-  },
-  "build": {
-    "env": {
-      "NEXT_PUBLIC_API_URL": "@api-url"
-    }
-  }
+  "devCommand": "cd apps/web && npm run dev"
 }
