@@ -981,17 +981,18 @@ def determine_risk_level(request: ObligationRequest) -> str:
     if request.affects_legal_rights:
         return "high_risk"
 
-    # 4. Fully automated + high impact (natural persons OR critical B2B)
-    # Combination of full automation with significant impact triggers high-risk
+    # 4. Fully automated decisions (natural persons OR critical B2B)
+    # GDPR Art. 22 logic: No human in the loop for critical decisions = high-risk
     if request.fully_automated:
         # For natural persons: high impact or vulnerable groups
         if request.involves_natural_persons:
             if request.is_high_impact or request.vulnerable_groups:
                 return "high_risk"
 
-        # For B2B/corporate: Fully automated credit/insurance decisions should be high-risk
-        # Even though Annex III 5(b) covers only natural persons, fully automated B2B credit
-        # that significantly impacts business access to finance follows the same logic
+        # For B2B/corporate: Fully automated credit/insurance decisions are HIGH-RISK
+        # GDPR Art. 22 applies by analogy: Automated decisions with significant effects
+        # No human in the loop for credit = no safeguard against errors/bias
+        # Even though Annex III 5(b) covers only natural persons, the principle applies
         critical_b2b_use_cases = [
             AIUseCase.CREDIT_SCORING_CORPORATE,
             AIUseCase.CORPORATE_RISK_OPINION,
@@ -999,8 +1000,11 @@ def determine_risk_level(request: ObligationRequest) -> str:
             AIUseCase.INSURANCE_PRICING_MOTOR,
             AIUseCase.INSURANCE_PRICING_LIABILITY,
             AIUseCase.INSURANCE_UNDERWRITING_PROPERTY,
+            AIUseCase.LOAN_PRICING,  # B2B loan pricing fully automated
+            AIUseCase.COLLECTIONS_RECOVERY,  # Can affect businesses too
         ]
-        if request.use_case in critical_b2b_use_cases and request.is_high_impact:
+        # Fully automated critical B2B decisions are HIGH-RISK (no human safeguard)
+        if request.use_case in critical_b2b_use_cases:
             return "high_risk"
 
     # 5. General high impact check
