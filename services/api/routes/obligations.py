@@ -981,10 +981,26 @@ def determine_risk_level(request: ObligationRequest) -> str:
     if request.affects_legal_rights:
         return "high_risk"
 
-    # 4. Fully automated + high impact on natural persons
+    # 4. Fully automated + high impact (natural persons OR critical B2B)
     # Combination of full automation with significant impact triggers high-risk
-    if request.fully_automated and request.involves_natural_persons:
-        if request.is_high_impact or request.vulnerable_groups:
+    if request.fully_automated:
+        # For natural persons: high impact or vulnerable groups
+        if request.involves_natural_persons:
+            if request.is_high_impact or request.vulnerable_groups:
+                return "high_risk"
+
+        # For B2B/corporate: Fully automated credit/insurance decisions should be high-risk
+        # Even though Annex III 5(b) covers only natural persons, fully automated B2B credit
+        # that significantly impacts business access to finance follows the same logic
+        critical_b2b_use_cases = [
+            AIUseCase.CREDIT_SCORING_CORPORATE,
+            AIUseCase.CORPORATE_RISK_OPINION,
+            AIUseCase.INSURANCE_PRICING_PROPERTY,
+            AIUseCase.INSURANCE_PRICING_MOTOR,
+            AIUseCase.INSURANCE_PRICING_LIABILITY,
+            AIUseCase.INSURANCE_UNDERWRITING_PROPERTY,
+        ]
+        if request.use_case in critical_b2b_use_cases and request.is_high_impact:
             return "high_risk"
 
     # 5. General high impact check
@@ -3826,8 +3842,8 @@ def get_classification_basis(request: ObligationRequest) -> str:
     bases = {
         # Annex III point 5(b) - Access to essential private services (NATURAL PERSONS only)
         AIUseCase.CREDIT_SCORING: "Annex III, point 5(b) - creditworthiness assessment of natural persons",
-        AIUseCase.CREDIT_SCORING_CORPORATE: "Not in Annex III 5(b) - Annex III 5(b) covers only natural persons; B2B/corporate credit is minimal risk",
-        AIUseCase.CORPORATE_RISK_OPINION: "Not in Annex III 5(b) - B2B/corporate risk opinion with human credit officer decision = minimal risk",
+        AIUseCase.CREDIT_SCORING_CORPORATE: "Not in Annex III 5(b) - B2B credit is minimal risk with human oversight, but can be HIGH-RISK if fully automated with high impact",
+        AIUseCase.CORPORATE_RISK_OPINION: "Not in Annex III 5(b) - B2B risk opinion is minimal risk with human credit officer decision, but can be HIGH-RISK if fully automated without oversight",
         AIUseCase.LOAN_ORIGINATION: "Annex III, point 5(b) - access to and enjoyment of essential private services (credit)",
         AIUseCase.MORTGAGE_UNDERWRITING: "Annex III, point 5(b) - access to and enjoyment of essential private services (credit)",
         # Annex III point 5(c) - Life and health insurance ONLY
