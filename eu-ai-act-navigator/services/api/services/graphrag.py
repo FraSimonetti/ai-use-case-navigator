@@ -4,12 +4,19 @@ import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional
 
+from .rag_engine import RAGEngine
+
 
 class GraphRAGService:
-    """Q&A service supporting multiple LLM backends via API key from headers."""
+    """
+    Q&A service with RAG (Retrieval-Augmented Generation).
+
+    Uses official regulatory texts from EU AI Act, GDPR, and DORA
+    stored in a vector database for accurate, source-backed answers.
+    """
 
     def __init__(self):
-        pass
+        self.rag_engine = RAGEngine()
 
     async def answer_question(
         self,
@@ -19,7 +26,13 @@ class GraphRAGService:
         llm_api_key: Optional[str] = None,
         llm_model: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Answer a question using the configured LLM.
+        """
+        Answer a question using RAG (Retrieval-Augmented Generation).
+
+        Process:
+        1. Retrieve relevant passages from official regulatory texts
+        2. Generate answer using LLM with retrieved context
+        3. Return answer with sources, confidence, and warnings
 
         Args:
             question: The user's question
@@ -27,45 +40,29 @@ class GraphRAGService:
             llm_provider: Provider from headers (openrouter, openai, anthropic)
             llm_api_key: API key from headers
             llm_model: Model ID from headers
-        """
-        if not llm_provider or not llm_api_key or not llm_model:
-            return {
-                "answer": (
-                    "**No API key configured.**\n\n"
-                    "Go to **Settings** to add your API key.\n\n"
-                    "Supported providers:\n"
-                    "- **OpenRouter** - Access 100+ models (GPT-4, Claude, Llama)\n"
-                    "- **OpenAI** - Direct GPT access\n"
-                    "- **Anthropic** - Direct Claude access\n\n"
-                    "---\n\n"
-                    "**In the meantime**, use the **Use Case & Obligations** page which works "
-                    "without any API key and has 120+ pre-mapped use cases!"
-                ),
-                "sources": [],
+
+        Returns:
+            {
+                "answer": str,  # Generated answer
+                "sources": List[Dict],  # Sources with EUR-Lex links
+                "retrieved_passages": List[Dict],  # Retrieved regulatory text
+                "confidence": str,  # "high", "medium", or "low"
+                "warnings": List[str],  # Warnings if applicable
             }
-
-        system_prompt = self._build_system_prompt(context)
-        user_prompt = self._build_user_prompt(question, context)
-        conversation_history: List[Dict[str, str]] = (context or {}).get("conversation_history") or []
-
+        """
         try:
-            answer = await asyncio.to_thread(
-                self._make_request,
-                llm_provider,
-                llm_api_key,
-                llm_model,
-                system_prompt,
-                user_prompt,
-                conversation_history,
+            # Use RAG engine to answer question
+            result = await asyncio.to_thread(
+                self.rag_engine.answer_question,
+                question=question,
+                context=context,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model=llm_model,
             )
 
-            # Extract any article citations for sources
-            sources = self._extract_sources(answer)
+            return result
 
-            return {
-                "answer": answer,
-                "sources": sources,
-            }
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8', errors='ignore')
             try:
@@ -76,16 +73,25 @@ class GraphRAGService:
             return {
                 "answer": f"**API Error:** {error_msg}\n\nPlease verify your API key in Settings is correct and has available credits.",
                 "sources": [],
+                "retrieved_passages": [],
+                "confidence": "none",
+                "warnings": [error_msg],
             }
         except urllib.error.URLError as e:
             return {
                 "answer": f"**Connection Error:** Could not reach the AI provider.\n\nDetails: {str(e.reason)}\n\nPlease check your internet connection and try again.",
                 "sources": [],
+                "retrieved_passages": [],
+                "confidence": "none",
+                "warnings": [str(e.reason)],
             }
         except Exception as e:
             return {
                 "answer": f"**Error:** {str(e)}\n\nTip: Check your API key in Settings, or use the **Use Case & Obligations** page.",
                 "sources": [],
+                "retrieved_passages": [],
+                "confidence": "none",
+                "warnings": [str(e)],
             }
 
     def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:

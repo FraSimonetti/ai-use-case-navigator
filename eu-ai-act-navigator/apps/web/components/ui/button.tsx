@@ -33,7 +33,7 @@ export function Button({
       (children.props as { className?: string }).className ?? ''
     return cloneElement(children, {
       className: `${classes} ${childClassName}`.trim(),
-    })
+    } as any)
   }
 
   return (

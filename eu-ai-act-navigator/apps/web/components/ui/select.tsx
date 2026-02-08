@@ -32,17 +32,17 @@ export function Select({ value, onValueChange, children }: SelectProps) {
 
     if ((element.type as any).displayName === 'SelectItem') {
       items.push({
-        value: element.props.value,
-        label: String(element.props.children),
+        value: (element.props as any).value,
+        label: String((element.props as any).children),
       })
       return
     }
     if ((element.type as any).displayName === 'SelectValue') {
-      placeholder = element.props.placeholder ?? placeholder
+      placeholder = (element.props as any).placeholder ?? placeholder
       return
     }
-    if (element.props?.children) {
-      collect(element.props.children)
+    if ((element.props as any)?.children) {
+      collect((element.props as any).children)
     }
   }
 

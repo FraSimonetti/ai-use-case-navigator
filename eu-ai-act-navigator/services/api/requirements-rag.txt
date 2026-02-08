@@ -1,0 +1,14 @@
+# RAG System Requirements for EU AI Act Navigator
+
+# Core dependencies
+numpy>=1.24.0
+scikit-learn>=1.3.0  # For TF-IDF vectorization
+
+# Optional: Better embeddings (uncomment to use)
+# sentence-transformers>=2.2.0  # For semantic embeddings
+# openai>=1.0.0  # For OpenAI embeddings API
+
+# PDF processing
+# Note: Also requires poppler-utils system package
+#   macOS: brew install poppler
+#   Linux: apt-get install poppler-utils

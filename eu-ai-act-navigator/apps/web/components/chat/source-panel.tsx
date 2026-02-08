@@ -14,7 +14,7 @@ export function SourcePanel({ source, onClose }: SourcePanelProps) {
     <aside className="w-96 border-l bg-white p-4 overflow-auto">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">Source Detail</h3>
-        <Button variant="outline" size="sm" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           Close
         </Button>
       </div>

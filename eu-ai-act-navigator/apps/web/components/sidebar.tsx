@@ -1,34 +1,105 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Overview' },
-  { href: '/chat', label: 'AI Act Q&A' },
-  { href: '/obligations', label: 'Use Case & Obligations' },
-  { href: '/settings', label: '⚙️ Settings' },
+  {
+    href: '/',
+    label: 'Home',
+    description: 'Main dashboard'
+  },
+  {
+    href: '/chat',
+    label: 'Smart Q&A',
+    description: 'Ask regulatory questions'
+  },
+  {
+    href: '/obligations',
+    label: 'Use Case Analysis',
+    description: 'Find your obligations'
+  },
+  {
+    href: '/settings',
+    label: 'Settings',
+    description: 'Configure API keys'
+  },
 ]
 
 export function Sidebar() {
+  const pathname = usePathname()
+
   return (
-    <aside className="w-64 border-r bg-gray-50 hidden lg:flex flex-col">
-      <div className="p-6 border-b">
-        <h2 className="text-lg font-semibold">AI Use Case Navigator</h2>
-        <p className="text-xs text-gray-500">
-          EU AI Act • GDPR • DORA
-        </p>
+    <aside className="w-72 border-r bg-gradient-to-b from-slate-50 to-white hidden lg:flex flex-col shadow-sm">
+      {/* Logo & Brand */}
+      <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
+        <div className="mb-2">
+          <h2 className="text-lg font-bold text-white">EU AI Act Navigator</h2>
+          <p className="text-xs text-blue-100">
+            Regulatory Compliance Platform
+          </p>
+        </div>
+        <div className="flex gap-1 text-xs">
+          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">AI Act</span>
+          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">GDPR</span>
+          <span className="px-2 py-0.5 rounded bg-white/20 text-white font-medium">DORA</span>
+        </div>
       </div>
-      <nav className="flex-1 p-4 space-y-2">
-        {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="block rounded-md px-3 py-2 text-sm hover:bg-gray-100"
-          >
-            {item.label}
-          </Link>
-        ))}
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-1">
+        {NAV_ITEMS.map((item) => {
+          const isActive = pathname === item.href
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`group flex items-center justify-between rounded-lg px-4 py-3 transition-all ${
+                isActive
+                  ? 'bg-blue-50 border border-blue-200 shadow-sm'
+                  : 'hover:bg-gray-50 border border-transparent'
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className={`font-semibold text-sm ${
+                  isActive ? 'text-blue-700' : 'text-gray-700 group-hover:text-gray-900'
+                }`}>
+                  {item.label}
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {item.description}
+                </div>
+              </div>
+              {isActive && (
+                <div className="w-1 h-8 bg-blue-600 rounded-full"></div>
+              )}
+            </Link>
+          )
+        })}
       </nav>
+
+      {/* Footer Info */}
+      <div className="p-4 border-t bg-gray-50">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600">Total Use Cases</span>
+            <span className="font-bold text-blue-600">161</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600">Regulations Mapped</span>
+            <span className="font-bold text-green-600">3</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-600">RAG Documents</span>
+            <span className="font-bold text-purple-600">1,149</span>
+          </div>
+        </div>
+        <div className="mt-3 pt-3 border-t">
+          <p className="text-xs text-gray-500 text-center">
+            Updated: February 2026
+          </p>
+        </div>
+      </div>
     </aside>
   )
 }

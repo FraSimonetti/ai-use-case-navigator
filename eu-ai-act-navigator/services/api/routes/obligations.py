@@ -19,6 +19,7 @@ class InstitutionType(str, Enum):
     CRYPTO_PROVIDER = "crypto_provider"
     ASSET_MANAGER = "asset_manager"
     PENSION_FUND = "pension_fund"
+    LAW_FIRM = "law_firm"
     OTHER = "other"
 
 
@@ -173,6 +174,72 @@ class AIUseCase(str, Enum):
     ASSET_VALUATION = "asset_valuation"
     COLLATERAL_VALUATION = "collateral_valuation"
     REAL_ESTATE_VALUATION = "real_estate_valuation"
+
+    # === REGTECH & COMPLIANCE (ADVANCED) ===
+    AI_REGULATORY_CHANGE_MANAGEMENT = "ai_regulatory_change_management"  # Auto-scan regulations
+    AI_REGULATORY_REPORTING_AUTOMATION = "ai_regulatory_reporting_automation"  # COREP/FINREP automation
+    DYNAMIC_AML_RISK_SCORING = "dynamic_aml_risk_scoring"  # Real-time AML risk updates
+    AI_MODEL_RISK_MANAGEMENT = "ai_model_risk_management"  # Model validation automation
+    AI_COMPLIANCE_WORKFLOW = "ai_compliance_workflow"  # Intelligent workflow routing
+
+    # === GENERATIVE AI & AGENTIC AI ===
+    GENERATIVE_AI_CREDIT_MEMOS = "generative_ai_credit_memos"  # LLM-generated credit analysis
+    AI_CODE_GENERATION = "ai_code_generation"  # GitHub Copilot for banking
+    AGENTIC_AI_OPERATIONS = "agentic_ai_operations"  # Zero-touch autonomous workflows
+    AI_MEETING_INTELLIGENCE = "ai_meeting_intelligence"  # Meeting summarization
+    AI_CONTRACT_INTELLIGENCE = "ai_contract_intelligence"  # Vendor contract analysis
+
+    # === CLIMATE FINANCE & ESG ===
+    CLIMATE_STRESS_TESTING_AI = "climate_stress_testing_ai"  # AI climate scenario analysis
+    GREEN_LENDING_CLIMATE_RISK = "green_lending_climate_risk"  # Climate risk scoring for loans
+    AI_CSRD_ESG_REPORTING = "ai_csrd_esg_reporting"  # Automated sustainability reporting
+    CARBON_FOOTPRINT_TRACKING = "carbon_footprint_tracking"  # Scope 3 emissions calculation
+    ESG_SENTIMENT_ANALYSIS = "esg_sentiment_analysis"  # ESG controversy detection
+
+    # === IDENTITY & eKYC ===
+    EIDAS_DIGITAL_IDENTITY = "eidas_digital_identity"  # eIDAS 2.0 EUDI Wallet integration
+    FACIAL_RECOGNITION_KYC = "facial_recognition_kyc"  # Biometric KYC (HIGH-RISK Annex III 1)
+    DOCUMENT_FORGERY_DETECTION = "document_forgery_detection"  # Fake document detection
+    LIVENESS_DETECTION = "liveness_detection"  # Deepfake prevention for video KYC
+    CONTINUOUS_AUTHENTICATION = "continuous_authentication"  # Behavioral biometrics
+
+    # === PAYMENTS & OPEN BANKING ===
+    INSTANT_PAYMENT_FRAUD = "instant_payment_fraud"  # Sub-second fraud detection
+    OPEN_BANKING_RISK_SCORING = "open_banking_risk_scoring"  # PSD3 third-party risk
+    BNPL_CREDIT_DECISIONING = "bnpl_credit_decisioning"  # Buy-now-pay-later instant approval
+    PAYMENT_ROUTING_OPTIMIZATION = "payment_routing_optimization"  # Optimal payment rails
+    CRYPTO_PAYMENT_RISK = "crypto_payment_risk"  # MiCA-compliant crypto risk assessment
+
+    # === INSURANCE INNOVATION ===
+    PARAMETRIC_INSURANCE_TRIGGERS = "parametric_insurance_triggers"  # Auto-trigger payouts
+    AI_TELEMATICS_PRICING = "ai_telematics_pricing"  # Usage-based insurance pricing
+    REINSURANCE_TREATY_ANALYSIS = "reinsurance_treaty_analysis"  # Reinsurance optimization
+    CATASTROPHE_MODELING = "catastrophe_modeling"  # Natural disaster prediction
+    INSURANCE_FRAUD_GRAPH = "insurance_fraud_graph"  # Network fraud detection
+
+    # === PRIVACY-ENHANCING TECHNOLOGIES ===
+    FEDERATED_LEARNING = "federated_learning"  # Cross-institution collaborative AI
+    SYNTHETIC_DATA_GENERATION = "synthetic_data_generation"  # GDPR-compliant fake data
+    DIFFERENTIAL_PRIVACY = "differential_privacy"  # Privacy-preserving AI
+
+    # === EXPLAINABILITY & GOVERNANCE ===
+    EXPLAINABLE_AI_XAI = "explainable_ai_xai"  # SHAP/LIME explanations
+    AI_HALLUCINATION_DETECTION = "ai_hallucination_detection"  # LLM output validation
+    AI_BIAS_TESTING = "ai_bias_testing"  # Fairness metrics and discrimination testing
+
+    # === LEGAL SERVICES & LAW FIRMS ===
+    LEGAL_DOCUMENT_REVIEW = "legal_document_review"  # AI reviewing contracts, legal documents
+    LEGAL_RESEARCH = "legal_research"  # AI searching case law, precedents, legal databases
+    EDISCOVERY = "ediscovery"  # Electronic discovery in litigation
+    CONTRACT_DRAFTING_LEGAL = "contract_drafting_legal"  # AI-assisted contract generation for legal matters
+    DUE_DILIGENCE_LEGAL = "due_diligence_legal"  # AI analyzing documents for M&A, transactions
+    LEGAL_BRIEF_GENERATION = "legal_brief_generation"  # AI drafting legal briefs, memoranda
+    CASE_OUTCOME_PREDICTION = "case_outcome_prediction"  # AI predicting litigation outcomes (HIGH-RISK if affects access to justice)
+    CLIENT_INTAKE_LEGAL = "client_intake_legal"  # AI triaging client legal inquiries
+    LEGAL_BILLING_TRACKING = "legal_billing_tracking"  # AI tracking billable hours and time
+    LEGAL_COMPLIANCE_MONITORING = "legal_compliance_monitoring"  # AI monitoring client regulatory compliance
+    COURT_FILING_AUTOMATION = "court_filing_automation"  # AI preparing court filings
+    WITNESS_CREDIBILITY_ANALYSIS = "witness_credibility_analysis"  # AI analyzing witness testimony (HIGH-RISK - Annex III 8)
 
     # === OTHER ===
     CUSTOM = "custom"
@@ -918,23 +985,56 @@ def determine_risk_level(request: ObligationRequest) -> str:
     # Limited risk systems
     if request.use_case in limited_risk:
         return "limited_risk"
-    
-    # Context-dependent checks
-    if request.use_case in potentially_high_risk:
-        # If denies service access, it's effectively high-risk
-        if request.denies_service_access or request.affects_legal_rights:
-            return "high_risk"
-        if request.is_high_impact or request.fully_automated:
-            return "high_risk"
-    
-    # Safety component check (Art. 6(1))
+
+    # === CONTEXTUAL HIGH-RISK TRIGGERS ===
+    # These apply to ALL use cases, regardless of Annex III listing or profile
+    # Per EU AI Act recitals and GDPR Art. 22 alignment
+
+    # 1. Safety component (Art. 6(1))
     if request.safety_component:
         return "high_risk"
-    
-    # General high impact check
-    if request.is_high_impact:
+
+    # 2. Denies service access (Annex III 5(b) principle)
+    # Even if not explicitly listed, if system can deny access to essential services,
+    # it follows the same logic as credit scoring and should be high-risk
+    if request.denies_service_access:
         return "high_risk"
-    
+
+    # 3. Affects legal rights (GDPR Art. 22 - automated decisions with legal effects)
+    # If system produces legal effects or similarly significant effects on individuals
+    if request.affects_legal_rights:
+        return "high_risk"
+
+    # 4. Fully automated + high impact on natural persons
+    # Combination of full automation with significant impact triggers high-risk
+    if request.fully_automated and request.involves_natural_persons:
+        if request.is_high_impact or request.vulnerable_groups:
+            return "high_risk"
+
+    # 5. General high impact check
+    # Significant impact on individuals' access to services, opportunities, or resources
+    if request.is_high_impact and request.involves_natural_persons:
+        return "high_risk"
+
+    # === PROFILE-BASED CLASSIFICATION ===
+    # After checking contextual triggers, check use case profile for baseline classification
+    try:
+        profile = get_use_case_profile(request.use_case)
+        if profile and "risk_level" in profile:
+            profile_risk = profile["risk_level"]
+            # Map profile risk levels to classification
+            if profile_risk == "high_risk":
+                return "high_risk"
+            elif profile_risk == "limited_risk":
+                return "limited_risk"
+            elif profile_risk == "minimal_risk":
+                return "minimal_risk"
+            elif profile_risk == "context_dependent":
+                return "context_dependent"
+    except:
+        pass  # If profile not found, fall through to default
+
+    # Default: context-dependent (requires assessment)
     return "context_dependent"
 
 
@@ -4448,6 +4548,180 @@ def get_all_use_case_profiles() -> dict:
             "key_obligations": [
                 "Accuracy and validation of assessments",
                 "Transparency to employees",
+            ],
+        },
+        # === LEGAL SERVICES & LAW FIRMS ===
+        AIUseCase.LEGAL_DOCUMENT_REVIEW: {
+            "label": "Legal Document Review",
+            "category": "legal_services",
+            "description": "AI systems reviewing contracts, agreements, and legal documents to identify clauses, risks, and compliance issues.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - professional tool with lawyer oversight",
+            "related_regulations": ["GDPR (if processing personal data)"],
+            "typical_actors": ["law firms", "legal departments"],
+            "key_obligations": [
+                "Ensure lawyer review of AI outputs",
+                "Document retention policies (GDPR Art. 5)",
+                "Professional liability considerations",
+            ],
+        },
+        AIUseCase.LEGAL_RESEARCH: {
+            "label": "Legal Research & Case Law",
+            "category": "legal_services",
+            "description": "AI searching case law, precedents, statutes, and legal databases to support legal analysis.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - research tool",
+            "related_regulations": ["Database licensing", "Copyright"],
+            "typical_actors": ["law firms", "legal departments", "courts"],
+            "key_obligations": [
+                "Verify accuracy of citations",
+                "Lawyer validation of research",
+                "No reliance on AI without verification",
+            ],
+        },
+        AIUseCase.EDISCOVERY: {
+            "label": "eDiscovery",
+            "category": "legal_services",
+            "description": "AI for electronic discovery in litigation - document classification, relevance scoring, privilege detection.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - litigation support tool",
+            "related_regulations": ["GDPR", "eDiscovery rules", "Civil Procedure rules"],
+            "typical_actors": ["law firms", "litigation support providers"],
+            "key_obligations": [
+                "Lawyer supervision of privilege determination",
+                "Validation of relevance scoring",
+                "Data protection for discovery materials",
+                "Transparency to opposing counsel if required",
+            ],
+        },
+        AIUseCase.CONTRACT_DRAFTING_LEGAL: {
+            "label": "Contract Drafting (Legal)",
+            "category": "legal_services",
+            "description": "AI-assisted contract generation using templates and clause libraries for legal matters.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - drafting assistance tool",
+            "related_regulations": ["Professional responsibility rules"],
+            "typical_actors": ["law firms", "legal departments"],
+            "key_obligations": [
+                "Lawyer review required before client delivery",
+                "Template validation",
+                "Client disclosure of AI assistance if material",
+            ],
+        },
+        AIUseCase.DUE_DILIGENCE_LEGAL: {
+            "label": "Legal Due Diligence",
+            "category": "legal_services",
+            "description": "AI analyzing documents for M&A transactions, real estate deals, and corporate transactions to identify legal risks.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - analysis tool with lawyer oversight",
+            "related_regulations": ["GDPR", "Professional secrecy"],
+            "typical_actors": ["law firms", "investment banks", "corporate legal"],
+            "key_obligations": [
+                "Lawyer validation of risk identification",
+                "Confidentiality safeguards",
+                "Client disclosure of AI use in engagement letters",
+            ],
+        },
+        AIUseCase.LEGAL_BRIEF_GENERATION: {
+            "label": "Legal Brief Generation",
+            "category": "legal_services",
+            "description": "AI drafting legal briefs, memoranda, and court submissions with lawyer review.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - drafting tool",
+            "related_regulations": ["Court rules", "Professional responsibility"],
+            "typical_actors": ["law firms", "government legal offices"],
+            "key_obligations": [
+                "Lawyer certification of all submissions",
+                "Verification of all citations and facts",
+                "Disclosure to court if required by local rules",
+            ],
+        },
+        AIUseCase.CASE_OUTCOME_PREDICTION: {
+            "label": "Case Outcome Prediction",
+            "category": "legal_services",
+            "description": "AI predicting litigation outcomes, settlement values, or judicial decisions. May be HIGH-RISK if materially affects access to justice or legal rights.",
+            "risk_level": "context_dependent",
+            "ai_act_reference": "Annex III, point 8 - AI systems intended to assist judicial authorities. HIGH-RISK if: (1) used by courts/judges to influence decisions, (2) materially affects access to justice, (3) determines case acceptance/rejection. MINIMAL RISK if: internal law firm tool for strategy with lawyer oversight.",
+            "related_regulations": ["Access to justice", "Judicial independence"],
+            "typical_actors": ["law firms", "litigation funders", "courts"],
+            "key_obligations": [
+                "If HIGH-RISK: Conformity assessment (Art. 43), human oversight by qualified lawyers/judges",
+                "If MINIMAL RISK: Lawyer validation, no mechanical reliance",
+                "Transparency to clients about prediction limitations",
+            ],
+            "context_explanation": "HIGH-RISK if: used by courts to assist judicial decisions, affects case acceptance, denies access to justice. MINIMAL RISK if: internal law firm strategic tool with full lawyer control and no impact on court access.",
+        },
+        AIUseCase.CLIENT_INTAKE_LEGAL: {
+            "label": "Client Intake (Legal)",
+            "category": "legal_services",
+            "description": "AI triaging and routing client legal inquiries to appropriate lawyers or practice groups.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - workflow automation",
+            "related_regulations": ["Professional responsibility", "Conflict checking"],
+            "typical_actors": ["law firms"],
+            "key_obligations": [
+                "Conflict of interest checks (not AI-only)",
+                "Timely lawyer review of urgent matters",
+                "Client confidentiality safeguards",
+            ],
+        },
+        AIUseCase.LEGAL_BILLING_TRACKING: {
+            "label": "Legal Billing & Time Tracking",
+            "category": "legal_services",
+            "description": "AI tracking billable hours, time entries, and legal billing for law firms.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - efficiency tool",
+            "related_regulations": ["Professional billing rules"],
+            "typical_actors": ["law firms"],
+            "key_obligations": [
+                "Lawyer review of bills before client submission",
+                "Accuracy of time allocation",
+                "Client billing transparency",
+            ],
+        },
+        AIUseCase.LEGAL_COMPLIANCE_MONITORING: {
+            "label": "Legal Compliance Monitoring",
+            "category": "legal_services",
+            "description": "AI monitoring client compliance with regulatory requirements and generating alerts.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - monitoring tool",
+            "related_regulations": ["Depends on sector monitored"],
+            "typical_actors": ["law firms", "corporate legal"],
+            "key_obligations": [
+                "Lawyer validation of compliance alerts",
+                "No replacement of human legal judgment",
+                "Client notification of limitations",
+            ],
+        },
+        AIUseCase.COURT_FILING_AUTOMATION: {
+            "label": "Court Filing Automation",
+            "category": "legal_services",
+            "description": "AI preparing court filings, forms, and administrative submissions.",
+            "risk_level": "minimal_risk",
+            "ai_act_reference": "Not listed in Annex III - administrative automation",
+            "related_regulations": ["Court rules", "Electronic filing rules"],
+            "typical_actors": ["law firms", "courts"],
+            "key_obligations": [
+                "Lawyer certification of all filings",
+                "Compliance with electronic filing rules",
+                "Verification of all information",
+            ],
+        },
+        AIUseCase.WITNESS_CREDIBILITY_ANALYSIS: {
+            "label": "Witness Credibility Analysis",
+            "category": "legal_services",
+            "description": "AI analyzing witness testimony, depositions, or statements to assess credibility. HIGH-RISK under Annex III point 8 as it assists judicial authorities and affects access to justice.",
+            "risk_level": "high_risk",
+            "ai_act_reference": "Annex III, point 8 - AI systems intended to assist judicial authorities in researching and interpreting facts and the law and in applying the law to a concrete set of facts.",
+            "related_regulations": ["Criminal procedure", "Evidence rules", "Due process"],
+            "typical_actors": ["courts", "prosecution", "law enforcement"],
+            "key_obligations": [
+                "Conformity assessment (Art. 43)",
+                "Human oversight by judges/lawyers (Art. 14)",
+                "Transparency to defendants (right to explanation)",
+                "No sole reliance on AI for credibility determinations",
+                "Right to contest AI-assisted decisions",
+                "Documentation and auditability (Art. 12)",
             ],
         },
         AIUseCase.CUSTOM: {

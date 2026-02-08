@@ -58,6 +58,7 @@ const INSTITUTION_TYPES = [
   { value: 'pension_fund', label: 'Pension Fund' },
   { value: 'fintech', label: 'Fintech Company' },
   { value: 'regtech', label: 'RegTech Provider' },
+  { value: 'law_firm', label: 'Law Firm / Legal Services' },
   { value: 'other', label: 'Other Organization' },
 ]
 
@@ -69,16 +70,17 @@ const AI_ROLES = [
 ]
 
 const USE_CASE_CATEGORIES = [
-  { id: 'credit_lending', label: 'Credit & Lending', icon: '💳', annex: 'III.5(b)' },
-  { id: 'risk_compliance', label: 'Risk & Compliance', icon: '🛡️', annex: 'Various' },
-  { id: 'trading_investment', label: 'Trading & Investment', icon: '📈', annex: 'N/A' },
-  { id: 'insurance', label: 'Insurance', icon: '🏥', annex: 'III.5(c)*' },
-  { id: 'hr_employment', label: 'HR & Employment', icon: '👥', annex: 'III.4' },
-  { id: 'customer_experience', label: 'Customer Experience', icon: '💬', annex: 'Art.50' },
-  { id: 'operations', label: 'Operations', icon: '⚙️', annex: 'N/A' },
-  { id: 'risk_models', label: 'Risk Models', icon: '📊', annex: 'Various' },
-  { id: 'security', label: 'Security & Access', icon: '🔒', annex: 'III.1' },
-  { id: 'pricing', label: 'Pricing & Valuation', icon: '💰', annex: 'Various' },
+  { id: 'credit_lending', label: 'Credit & Lending', annex: 'III.5(b)' },
+  { id: 'risk_compliance', label: 'Risk & Compliance', annex: 'Various' },
+  { id: 'trading_investment', label: 'Trading & Investment', annex: 'N/A' },
+  { id: 'insurance', label: 'Insurance', annex: 'III.5(c)*' },
+  { id: 'hr_employment', label: 'HR & Employment', annex: 'III.4' },
+  { id: 'customer_experience', label: 'Customer Experience', annex: 'Art.50' },
+  { id: 'operations', label: 'Operations', annex: 'N/A' },
+  { id: 'risk_models', label: 'Risk Models', annex: 'Various' },
+  { id: 'security', label: 'Security & Access', annex: 'III.1' },
+  { id: 'pricing', label: 'Pricing & Valuation', annex: 'Various' },
+  { id: 'legal_services', label: 'Legal Services', annex: 'III.8*' },
 ]
 
 // Comprehensive use case list with detailed descriptions
@@ -214,6 +216,20 @@ const USE_CASES = [
   { value: 'asset_valuation', label: 'Asset Valuation', category: 'pricing', risk: 'minimal_risk', description: 'AI for asset valuation.', annex_ref: 'Not listed' },
   { value: 'collateral_valuation', label: 'Collateral Valuation', category: 'pricing', risk: 'context_dependent', description: 'AI valuing collateral. May affect credit decisions.', annex_ref: 'Art. 6(3)' },
   { value: 'real_estate_valuation', label: 'Real Estate Valuation', category: 'pricing', risk: 'context_dependent', description: 'AI valuing properties. May affect mortgage decisions.', annex_ref: 'Art. 6(3)' },
+
+  // === LEGAL SERVICES & LAW FIRMS ===
+  { value: 'legal_document_review', label: 'Legal Document Review', category: 'legal_services', risk: 'minimal_risk', description: 'AI reviewing contracts, agreements, and legal documents. Analysis tool with lawyer oversight.', annex_ref: 'Not listed' },
+  { value: 'legal_research', label: 'Legal Research & Case Law', category: 'legal_services', risk: 'minimal_risk', description: 'AI searching case law, precedents, and legal databases. Research tool for lawyers.', annex_ref: 'Not listed' },
+  { value: 'ediscovery', label: 'eDiscovery', category: 'legal_services', risk: 'minimal_risk', description: 'AI for electronic discovery in litigation. Document classification and relevance scoring.', annex_ref: 'Not listed' },
+  { value: 'contract_drafting_legal', label: 'Contract Drafting (Legal)', category: 'legal_services', risk: 'minimal_risk', description: 'AI-assisted contract generation using templates and clause libraries. Lawyer review required.', annex_ref: 'Not listed' },
+  { value: 'due_diligence_legal', label: 'Legal Due Diligence', category: 'legal_services', risk: 'minimal_risk', description: 'AI analyzing documents for M&A and transactions. Risk identification tool.', annex_ref: 'Not listed' },
+  { value: 'legal_brief_generation', label: 'Legal Brief Generation', category: 'legal_services', risk: 'minimal_risk', description: 'AI drafting legal briefs and memoranda. Lawyer review and approval required.', annex_ref: 'Not listed' },
+  { value: 'case_outcome_prediction', label: 'Case Outcome Prediction', category: 'legal_services', risk: 'context_dependent', description: 'AI predicting litigation outcomes. HIGH-RISK if used by courts/affects access to justice. MINIMAL if internal law firm strategy tool.', annex_ref: 'Art. 6(3) / Annex III 8' },
+  { value: 'client_intake_legal', label: 'Client Intake (Legal)', category: 'legal_services', risk: 'minimal_risk', description: 'AI triaging legal inquiries and automating client intake workflow.', annex_ref: 'Not listed' },
+  { value: 'legal_billing_tracking', label: 'Legal Billing & Time Tracking', category: 'legal_services', risk: 'minimal_risk', description: 'AI tracking billable hours and legal billing. Efficiency tool.', annex_ref: 'Not listed' },
+  { value: 'legal_compliance_monitoring', label: 'Legal Compliance Monitoring', category: 'legal_services', risk: 'minimal_risk', description: 'AI monitoring client compliance with regulations. Alert system.', annex_ref: 'Not listed' },
+  { value: 'court_filing_automation', label: 'Court Filing Automation', category: 'legal_services', risk: 'minimal_risk', description: 'AI preparing court filings. Administrative automation with lawyer oversight.', annex_ref: 'Not listed' },
+  { value: 'witness_credibility_analysis', label: 'Witness Credibility Analysis', category: 'legal_services', risk: 'high_risk', description: '⚠️ HIGH-RISK: AI analyzing witness testimony. May affect legal outcomes under Annex III point 8.', annex_ref: 'Annex III, point 8' },
 ]
 
 // Obligation interface
@@ -242,6 +258,7 @@ interface Obligation {
 }
 
 export default function ObligationsPage() {
+  const [showInfoModal, setShowInfoModal] = useState(false)
   const [formData, setFormData] = useState({
     institution_type: '',
     role: '',
@@ -355,8 +372,18 @@ export default function ObligationsPage() {
     if (risk === 'high_risk') return 'bg-red-100 text-red-800 border-red-300'
     if (risk === 'limited_risk') return 'bg-yellow-100 text-yellow-800 border-yellow-300'
     if (risk === 'minimal_risk') return 'bg-green-100 text-green-800 border-green-300'
-    if (risk === 'exempt_from_high_risk') return 'bg-blue-100 text-blue-800 border-blue-300'
+    if (risk === 'context_dependent') return 'bg-blue-100 text-blue-800 border-blue-300'
+    if (risk === 'exempt_from_high_risk') return 'bg-purple-100 text-purple-800 border-purple-300'
     return 'bg-gray-100 text-gray-800 border-gray-300'
+  }
+
+  const getRiskLabel = (risk: string) => {
+    if (risk === 'high_risk') return 'HIGH-RISK'
+    if (risk === 'limited_risk') return 'LIMITED RISK'
+    if (risk === 'minimal_risk') return 'MINIMAL RISK'
+    if (risk === 'context_dependent') return 'CONTEXT-DEPENDENT'
+    if (risk === 'exempt_from_high_risk') return 'EXEMPT FROM HIGH-RISK'
+    return risk.toUpperCase().replace(/_/g, ' ')
   }
 
   const getPriorityColor = (priority: string | undefined) => {
@@ -400,9 +427,18 @@ export default function ObligationsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold mb-2">AI Use Case Navigator</h1>
-        <p className="text-gray-600">Comprehensive regulatory mapping for EU AI Act, GDPR, DORA, GPAI, and sectoral regulations. {USE_CASES.length} use cases mapped.</p>
+      <div className="mb-4 flex items-start justify-between">
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold mb-2">Use Case Analysis</h1>
+          <p className="text-gray-600">Comprehensive regulatory mapping for EU AI Act, GDPR, DORA, GPAI, and sectoral regulations. {USE_CASES.length} use cases mapped.</p>
+        </div>
+        <button
+          onClick={() => setShowInfoModal(true)}
+          className="ml-4 px-4 py-2 rounded-lg border-2 border-blue-300 hover:border-blue-500 hover:bg-blue-50 text-blue-700 font-medium transition-all shadow-sm text-sm"
+          title="How to use Use Case Analysis"
+        >
+          Info
+        </button>
       </div>
 
       {/* Legal Disclaimer */}
@@ -492,7 +528,7 @@ export default function ObligationsPage() {
                       className={`px-3 py-1 rounded-full text-xs border ${selectedCategory === cat.id ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50'}`}
                       onClick={() => setSelectedCategory(cat.id)}
                     >
-                      {cat.icon} {cat.label} ({count})
+                      {cat.label} ({count})
                     </button>
                   )
                 })}
@@ -519,8 +555,14 @@ export default function ObligationsPage() {
                     >
                       <div className="flex items-center justify-between gap-1">
                         <span className="font-medium text-sm">{uc.label}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${getRiskColor(uc.risk)}`}>
-                          {uc.risk.replace('_', ' ')}
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${getRiskColor(uc.risk)} ${uc.risk === 'context_dependent' ? 'cursor-help' : ''}`}
+                          title={uc.risk === 'context_dependent' ? 'Classification depends on context - click Info button for details' : undefined}
+                        >
+                          {getRiskLabel(uc.risk)}
+                          {uc.risk === 'context_dependent' && (
+                            <span className="ml-1">ⓘ</span>
+                          )}
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{uc.description}</p>
@@ -1027,6 +1069,185 @@ export default function ObligationsPage() {
               <CardContent><TimelineView deadlines={results.timeline} /></CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Info Modal */}
+      {showInfoModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInfoModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">How to Use Case Analysis Works</h2>
+                <button
+                  onClick={() => setShowInfoModal(false)}
+                  className="text-white hover:bg-white/20 rounded-lg px-3 py-1 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">What is Use Case Analysis?</h3>
+                <p className="text-gray-700 leading-relaxed">
+                  Use Case Analysis helps you determine the exact regulatory obligations for your AI system based on its
+                  specific use case, your role (Provider/Deployer), and contextual factors. It provides a comprehensive
+                  mapping across EU AI Act, GDPR, and DORA with zero-error validation.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">How It Works</h3>
+                <ol className="space-y-3 text-gray-700">
+                  <li className="flex gap-3">
+                    <span className="font-bold text-indigo-600">1.</span>
+                    <div>
+                      <strong>Select Your Organization:</strong> Choose your institution type (Bank, Law Firm, etc.)
+                      and your role with the AI system (Provider if you develop it, Deployer if you use it).
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="font-bold text-indigo-600">2.</span>
+                    <div>
+                      <strong>Choose Your Use Case:</strong> Select from 173 pre-mapped use cases across 11 categories,
+                      or describe your own custom use case for AI-powered analysis.
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="font-bold text-indigo-600">3.</span>
+                    <div>
+                      <strong>Set Context Filters:</strong> Specify important factors like whether the AI affects natural persons,
+                      is fully automated, denies service access, or processes special category data. These factors determine
+                      the final risk classification.
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="font-bold text-indigo-600">4.</span>
+                    <div>
+                      <strong>Get Your Obligations:</strong> Receive a comprehensive list of all applicable obligations
+                      across regulations, with deadlines, action items, implementation steps, and direct EUR-Lex links.
+                    </div>
+                  </li>
+                </ol>
+              </section>
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">Understanding Risk Classifications</h3>
+                <div className="space-y-3">
+                  <div className="p-4 bg-red-50 border-2 border-red-300 rounded-lg">
+                    <strong className="text-red-800">HIGH-RISK</strong>
+                    <p className="text-gray-700 text-sm mt-1">
+                      AI systems explicitly listed in Annex III of the EU AI Act. Examples: credit scoring for natural persons
+                      (Annex III 5b), life/health insurance pricing (Annex III 5c), HR recruitment (Annex III 4), biometric
+                      identification (Annex III 1). These require conformity assessment, technical documentation, human oversight,
+                      and accuracy requirements.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
+                    <strong className="text-yellow-800">LIMITED RISK</strong>
+                    <p className="text-gray-700 text-sm mt-1">
+                      AI systems with transparency obligations under Article 50. Examples: chatbots, emotion recognition systems,
+                      biometric categorization, deepfakes. Main obligation: inform users they're interacting with AI.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-green-50 border-2 border-green-300 rounded-lg">
+                    <strong className="text-green-800">MINIMAL RISK</strong>
+                    <p className="text-gray-700 text-sm mt-1">
+                      AI systems not listed in Annex III and without transparency requirements. Most AI systems fall here.
+                      Examples: corporate credit scoring, spam filters, inventory optimization, document processing tools.
+                      No specific AI Act obligations beyond general product safety and voluntary codes of conduct.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
+                    <strong className="text-blue-800">CONTEXT-DEPENDENT</strong>
+                    <p className="text-gray-700 text-sm mt-1 mb-3">
+                      AI systems that could be HIGH-RISK or MINIMAL RISK depending on how they're used and specific contextual
+                      factors. The final classification depends on whether the AI:
+                    </p>
+                    <ul className="text-sm text-gray-700 space-y-1.5 ml-4">
+                      <li className="flex gap-2">
+                        <span className="text-blue-600 font-bold">•</span>
+                        <span><strong>Denies service access</strong> (e.g., blocks account opening, rejects applications) → HIGH-RISK</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="text-blue-600 font-bold">•</span>
+                        <span><strong>Affects legal rights</strong> (GDPR Art. 22 - produces legal/significant effects) → HIGH-RISK</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="text-blue-600 font-bold">•</span>
+                        <span><strong>Fully automated + affects natural persons + vulnerable groups</strong> → HIGH-RISK</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="text-blue-600 font-bold">•</span>
+                        <span><strong>High impact</strong> (material effect on services/opportunities, significant financial consequences &gt;€1000) → HIGH-RISK</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="text-blue-600 font-bold">•</span>
+                        <span><strong>None of the above</strong> (advisory tool, human-in-the-loop, B2B only, no service denial) → MINIMAL RISK</span>
+                      </li>
+                    </ul>
+                    <p className="text-xs text-blue-700 mt-3 italic">
+                      Examples: Fraud detection (HIGH-RISK if blocks transactions, MINIMAL if only flags for human review),
+                      AML screening (HIGH-RISK if denies account opening, MINIMAL if advisory), Case outcome prediction for
+                      law firms (HIGH-RISK if used by courts, MINIMAL if internal strategy tool).
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">Article 6(3) Exemptions</h3>
+                <p className="text-gray-700 text-sm mb-3">
+                  Even if listed in Annex III, an AI system is NOT high-risk if it meets one of these exemptions:
+                </p>
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span><strong>Art. 6(3)(a):</strong> Performs a narrow procedural task (e.g., formatting documents)</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span><strong>Art. 6(3)(b):</strong> Improves result of completed human activity (e.g., spell check)</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span><strong>Art. 6(3)(c):</strong> Detects patterns only without replacing human assessment</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span><strong>Art. 6(3)(d):</strong> Preparatory task to human assessment (e.g., CV parsing before HR review)</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4">
+                <h3 className="text-lg font-bold text-amber-900 mb-2">Important Notes</h3>
+                <ul className="text-sm text-amber-800 space-y-2">
+                  <li className="flex gap-2">
+                    <span className="font-bold">•</span>
+                    <span>This tool provides regulatory guidance based on official EUR-Lex texts but does not constitute legal advice.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">•</span>
+                    <span>For context-dependent use cases, carefully review the contextual factors and consult legal counsel.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">•</span>
+                    <span>All classifications include direct EUR-Lex links for verification.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">•</span>
+                    <span>Always validate critical decisions with your legal/compliance team.</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </div>
         </div>
       )}
     </div>

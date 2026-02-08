@@ -1,67 +1,115 @@
 # Deployment Guide - EU AI Act Navigator
 
-## Architecture
-- **Frontend**: Next.js → Deploy to **Vercel**
-- **Backend**: FastAPI → Deploy to **Railway** or **Render**
+## 🚀 Quick Start
+
+Your code is already on GitHub! Follow these simple steps to deploy:
+
+**1. Deploy Backend → 2. Deploy Frontend → 3. Connect them**
 
 ---
 
-## Option 1: Vercel (Frontend) + Railway (Backend)
+## Architecture
+- **Frontend**: Next.js → Deploy to **Vercel** (Recommended)
+- **Backend**: FastAPI → Deploy to **Railway** (Recommended)
+
+---
+
+## ✅ RECOMMENDED: Vercel + Railway
 
 ### Step 1: Deploy Backend to Railway
 
-1. **Create Railway Account**: https://railway.app
-2. **Install Railway CLI** (optional):
-   ```bash
-   npm install -g @railway/cli
-   railway login
-   ```
+1. **Create Railway Account**:
+   - Go to https://railway.app
+   - Sign up with GitHub
 
-3. **Create `railway.json`** in `services/api/`:
-   ```json
-   {
-     "$schema": "https://railway.app/railway.schema.json",
-     "build": {
-       "builder": "NIXPACKS"
-     },
-     "deploy": {
-       "startCommand": "uvicorn services.api.main:app --host 0.0.0.0 --port $PORT",
-       "restartPolicyType": "ON_FAILURE"
-     }
-   }
-   ```
+2. **Deploy from GitHub**:
+   - Click "New Project"
+   - Select "Deploy from GitHub repo"
+   - Choose: `FraSimonetti/ai-use-case-navigator`
+   - Railway will auto-detect the Python app
 
-4. **Deploy via Dashboard**:
-   - Go to https://railway.app/new
-   - Click "Deploy from GitHub repo"
-   - Select your repository
-   - Set root directory to `/services/api`
-   - Add environment variables:
-     - `OPENROUTER_API_KEY` = your key
-     - `OPENROUTER_MODEL` = openai/gpt-4o-mini
-     - `OPENROUTER_APP_URL` = (your frontend URL later)
-     - `OPENROUTER_APP_NAME` = EU AI Act Navigator
+3. **Configure the Service**:
+   - Go to **Settings** → **Root Directory**
+   - Set to: `services/api`
 
-5. **Get your Backend URL**: Railway will give you a URL like `https://your-app.railway.app`
+   - Go to **Settings** → **Deploy**
+   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+   - **IMPORTANT**: The embeddings (1,149 docs) are already included in the repo
+   - Railway will automatically load them from `data/embeddings/`
+
+4. **Generate Domain**:
+   - Go to **Settings** → **Domains**
+   - Click "Generate Domain"
+   - Copy the URL (e.g., `https://ai-act-api.railway.app`)
+
+5. **Verify Deployment**:
+   - Visit: `https://your-app.railway.app/docs`
+   - You should see FastAPI documentation
+   - Try the `/health` endpoint
+
+**Note**: No environment variables needed! The app works with TF-IDF embeddings (no external API required).
+
+---
 
 ### Step 2: Deploy Frontend to Vercel
 
-1. **Create Vercel Account**: https://vercel.com
+1. **Create Vercel Account**:
+   - Go to https://vercel.com
+   - Sign up with GitHub
 
-2. **Update Next.js config** for production API:
-   
-   Edit `apps/web/lib/server-api.ts` to use environment variable:
-   ```typescript
-   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+2. **Import Project**:
+   - Click "Add New Project"
+   - Import from GitHub: `FraSimonetti/ai-use-case-navigator`
+
+3. **Configure Build Settings**:
+   - **Framework Preset**: Next.js
+   - **Root Directory**: `apps/web`
+   - **Build Command**: `npm run build` (auto-detected)
+   - **Output Directory**: `.next` (auto-detected)
+   - **Install Command**: `npm install` (auto-detected)
+
+4. **Add Environment Variable**:
+   - Click "Environment Variables"
+   - Add:
+     - **Name**: `NEXT_PUBLIC_API_URL`
+     - **Value**: `https://your-app.railway.app` (your Railway URL from Step 1)
+
+5. **Deploy**:
+   - Click "Deploy"
+   - Wait 2-3 minutes for build to complete
+
+6. **Get Your URL**:
+   - Vercel will provide: `https://ai-use-case-navigator.vercel.app`
+   - Your site is now live!
+
+---
+
+### Step 3: Test Everything
+
+1. **Test Backend**:
+   ```bash
+   curl https://your-app.railway.app/health
    ```
+   Expected: `{"status":"healthy"}`
 
-3. **Deploy via Vercel Dashboard**:
-   - Go to https://vercel.com/new
-   - Import your GitHub repository
-   - Set root directory to `apps/web`
-   - Add environment variable:
-     - `NEXT_PUBLIC_API_URL` = `https://your-backend.railway.app`
-   - Click Deploy
+2. **Test Frontend**:
+   - Visit your Vercel URL
+   - Navigate to "Obligations Finder"
+   - Select a use case (e.g., "Credit Scoring - Consumer")
+   - Verify risk classification appears
+
+3. **Test Smart Q&A**:
+   - Go to "Smart Q&A" page
+   - Ask: "What are high-risk AI systems in Annex III?"
+   - Verify it retrieves passages from regulations
+   - Check EUR-Lex links appear
+
+---
+
+## Alternative Option: Render (Both Services)
+
+If you prefer a single platform for both frontend and backend:
 
 ---
 
