@@ -961,33 +961,9 @@ def determine_risk_level(request: ObligationRequest) -> str:
     ]
     
     # === DETERMINE CLASSIFICATION ===
-    
-    # Check explicit NOT high-risk cases
-    if request.use_case in not_high_risk_corporate:
-        return "minimal_risk"
-    
-    # Check if potentially high-risk based on Annex III
-    is_annex_iii_high_risk = (
-        request.use_case in credit_high_risk or
-        request.use_case in insurance_high_risk or
-        request.use_case in hr_high_risk or
-        request.use_case in biometric_high_risk or
-        (request.use_case in insurance_generic and request.life_health_insurance)
-    )
-    
-    # If listed in Annex III, check for Art. 6(3) exemptions
-    if is_annex_iii_high_risk:
-        is_exempt, _ = check_art_6_3_exemption(request)
-        if is_exempt:
-            return "exempt_from_high_risk"  # Special classification
-        return "high_risk"
-    
-    # Limited risk systems
-    if request.use_case in limited_risk:
-        return "limited_risk"
 
-    # === CONTEXTUAL HIGH-RISK TRIGGERS ===
-    # These apply to ALL use cases, regardless of Annex III listing or profile
+    # === CONTEXTUAL HIGH-RISK TRIGGERS (Check FIRST) ===
+    # These apply to ALL use cases, regardless of Annex III listing or B2B/corporate status
     # Per EU AI Act recitals and GDPR Art. 22 alignment
 
     # 1. Safety component (Art. 6(1))
@@ -995,7 +971,7 @@ def determine_risk_level(request: ObligationRequest) -> str:
         return "high_risk"
 
     # 2. Denies service access (Annex III 5(b) principle)
-    # Even if not explicitly listed, if system can deny access to essential services,
+    # Even if not explicitly listed or B2B, if system can deny access to essential services,
     # it follows the same logic as credit scoring and should be high-risk
     if request.denies_service_access:
         return "high_risk"
@@ -1015,6 +991,33 @@ def determine_risk_level(request: ObligationRequest) -> str:
     # Significant impact on individuals' access to services, opportunities, or resources
     if request.is_high_impact and request.involves_natural_persons:
         return "high_risk"
+
+    # === ANNEX III HIGH-RISK (after contextual checks) ===
+
+    # Check if potentially high-risk based on Annex III
+    is_annex_iii_high_risk = (
+        request.use_case in credit_high_risk or
+        request.use_case in insurance_high_risk or
+        request.use_case in hr_high_risk or
+        request.use_case in biometric_high_risk or
+        (request.use_case in insurance_generic and request.life_health_insurance)
+    )
+
+    # If listed in Annex III, check for Art. 6(3) exemptions
+    if is_annex_iii_high_risk:
+        is_exempt, _ = check_art_6_3_exemption(request)
+        if is_exempt:
+            return "exempt_from_high_risk"  # Special classification
+        return "high_risk"
+
+    # Limited risk systems
+    if request.use_case in limited_risk:
+        return "limited_risk"
+
+    # Check explicit NOT high-risk cases (corporate/B2B)
+    # Only if no contextual triggers above were met
+    if request.use_case in not_high_risk_corporate:
+        return "minimal_risk"
 
     # === PROFILE-BASED CLASSIFICATION ===
     # After checking contextual triggers, check use case profile for baseline classification
@@ -1083,6 +1086,52 @@ def get_ai_act_obligations(
                     "Technical jargon that users don't understand",
                 ],
                 related_obligations=["logging"],
+            )
+        )
+
+    # Minimal risk obligations - basic AI governance
+    if risk_level == "minimal_risk" or risk_level == "context_dependent":
+        obligations.append(
+            Obligation(
+                id="basic_governance_minimal",
+                name="Basic AI Governance (Best Practice)",
+                description="Even minimal risk AI systems should follow basic governance principles: document purpose, monitor performance, and maintain accountability.",
+                source_regulation="eu_ai_act",
+                source_articles=["General principles"],
+                deadline=None,
+                priority="low",
+                action_items=[
+                    "Document AI system purpose and intended use",
+                    "Maintain basic accuracy and performance monitoring",
+                    "Implement human oversight mechanisms",
+                    "Establish accountability for AI decisions",
+                    "Consider voluntary transparency disclosures",
+                ],
+                category="governance",
+                applies_to=["provider", "deployer"],
+                summary="Basic governance for minimal risk AI - document, monitor, and maintain accountability.",
+                effort_level="low",
+                legal_basis="While not legally required for minimal risk AI, basic governance aligns with EU AI Act principles and prepares for potential future obligations.",
+                what_it_means="Even if your AI is minimal risk, basic governance is good practice: know what it does, monitor that it works correctly, and have someone accountable.",
+                implementation_steps=[
+                    "1. PURPOSE: Document what the AI does and why",
+                    "2. MONITORING: Track basic performance metrics",
+                    "3. OVERSIGHT: Ensure humans can review outputs when needed",
+                    "4. ACCOUNTABILITY: Assign ownership for AI decisions",
+                    "5. DOCUMENTATION: Keep records for internal governance",
+                ],
+                evidence_required=[
+                    "AI system description document",
+                    "Performance monitoring dashboard/reports",
+                    "Accountability assignment",
+                ],
+                penalties="None (best practice), but helps demonstrate due diligence if issues arise.",
+                common_pitfalls=[
+                    "No documentation of AI purpose or scope",
+                    "Zero monitoring of AI performance",
+                    "No clear ownership or accountability",
+                ],
+                related_obligations=[],
             )
         )
 
