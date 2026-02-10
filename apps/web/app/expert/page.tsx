@@ -134,6 +134,11 @@ interface FormData {
   provides_investment_advice: boolean
   processes_payments: boolean
   performs_aml_obligations: boolean
+
+  // Section 11: Article 6(3) Exemptions (High-Risk Exclusions)
+  narrow_procedural_task: boolean
+  improves_human_activity: boolean
+  detects_decision_patterns: boolean
 }
 
 interface Obligation {
@@ -277,6 +282,9 @@ const INITIAL_FORM: FormData = {
   provides_investment_advice: false,
   processes_payments: false,
   performs_aml_obligations: false,
+  narrow_procedural_task: false,
+  improves_human_activity: false,
+  detects_decision_patterns: false,
 }
 
 const PROHIBITED_PRACTICES_QUESTIONS: {
@@ -440,6 +448,7 @@ export default function ExpertPage() {
   const [showCompliance, setShowCompliance] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
   const [showSectoral, setShowSectoral] = useState(false)
+  const [showExemptions, setShowExemptions] = useState(false)
   const [expandedRegulation, setExpandedRegulation] = useState<string | null>(null)
   const [errors, setErrors] = useState<ValidationErrors>({})
   const [aiAnalysis, setAiAnalysis] = useState<string>('')
@@ -674,6 +683,14 @@ export default function ExpertPage() {
       if (formData.gpai_with_systemic_risk) lines.push('- GPAI with systemic risk (>10^25 FLOPs)')
       if (formData.safety_component) lines.push('- Safety component')
       if (formData.critical_ict_service) lines.push('- Critical ICT service (DORA)')
+    }
+
+    if (formData.narrow_procedural_task || formData.improves_human_activity || formData.detects_decision_patterns) {
+      lines.push('')
+      lines.push('Article 6(3) Exemptions (High-Risk Exclusions):')
+      if (formData.narrow_procedural_task) lines.push('- Performs narrow procedural task')
+      if (formData.improves_human_activity) lines.push('- Improves result of previously completed human activity')
+      if (formData.detects_decision_patterns) lines.push('- Detects decision patterns without replacing human assessment')
     }
 
     return lines.join('\n')
@@ -1786,6 +1803,63 @@ export default function ExpertPage() {
                   </div>
                 </label>
               ))}
+            </div>
+          )}
+        </section>
+
+        {/* Section 11: Article 6(3) Exemptions - High-Risk Exclusions */}
+        <section className="bg-white rounded-xl border-2 border-orange-100 shadow-sm overflow-hidden">
+          <button
+            className="w-full bg-gradient-to-r from-orange-500 to-amber-500 px-5 py-3 flex items-center justify-between"
+            onClick={() => setShowExemptions(!showExemptions)}
+          >
+            <h2 className="text-white font-bold text-sm">11. Article 6(3) Exemptions (High-Risk Exclusions)</h2>
+            <span className="text-white text-sm">{showExemptions ? '▲' : '▼'}</span>
+          </button>
+          {showExemptions && (
+            <div className="p-5 space-y-3">
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3">
+                <p className="text-xs text-orange-900">
+                  <strong>Article 6(3):</strong> Even if your AI system falls under a high-risk category (Annex III),
+                  it may be <strong>exempt from high-risk classification</strong> if it meets one of these criteria:
+                </p>
+              </div>
+              {[
+                {
+                  key: 'narrow_procedural_task' as const,
+                  label: 'Narrow procedural task',
+                  desc: 'Performs a narrow procedural task (e.g., document formatting, routing) without decision-making'
+                },
+                {
+                  key: 'improves_human_activity' as const,
+                  label: 'Improves human activity result',
+                  desc: 'Improves the result of a previously completed human activity (e.g., spell-check, formatting)'
+                },
+                {
+                  key: 'detects_decision_patterns' as const,
+                  label: 'Detects decision patterns only',
+                  desc: 'Detects decision-making patterns or deviations without replacing or influencing human assessment'
+                },
+              ].map(({ key, label, desc }) => (
+                <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-orange-50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                    checked={formData[key]}
+                    onChange={(e) => updateForm(key, e.target.checked)}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{label}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3">
+                <p className="text-xs text-amber-900">
+                  <strong>Important:</strong> These exemptions are narrow and fact-specific. Document your justification
+                  carefully if claiming an exemption. Consult legal counsel for validation.
+                </p>
+              </div>
             </div>
           )}
         </section>
