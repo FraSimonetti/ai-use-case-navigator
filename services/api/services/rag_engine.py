@@ -104,9 +104,12 @@ class RAGEngine:
                 "warnings": ["Vector database not initialized"],
             }
 
-        # Step 1: Retrieve relevant passages
+        # Step 1: Expand query with relevant keywords for better retrieval
+        expanded_query = self._expand_query(question)
+
+        # Step 2: Retrieve relevant passages
         retrieved_passages = self.vector_store.retrieve(
-            query=question,
+            query=expanded_query,
             top_k=5,
             regulation_filter=None,  # Search across all regulations
             min_score=0.1
@@ -176,6 +179,37 @@ class RAGEngine:
             "confidence": overall_confidence,
             "warnings": warnings,
         }
+
+    def _expand_query(self, query: str) -> str:
+        """
+        Expand query with relevant regulatory keywords for better retrieval.
+
+        Maps common user queries to technical regulatory terms used in official texts.
+        """
+        query_lower = query.lower()
+
+        # Query expansion mappings
+        expansions = {
+            "exemption": "narrow procedural task does not materially influence Article 6 paragraph 3",
+            "exception": "narrow procedural task does not materially influence Article 6 paragraph 3",
+            "high-risk exclusion": "narrow procedural task does not materially influence Article 6 paragraph 3",
+            "not high-risk": "narrow procedural task does not materially influence Article 6 paragraph 3",
+            "exempt from high-risk": "narrow procedural task does not materially influence Article 6 paragraph 3",
+            "gpai": "general purpose AI foundation model systemic risk Article 51 52 53",
+            "foundation model": "general purpose AI GPAI Article 51 52 53",
+            "llm": "large language model general purpose AI GPAI",
+            "prohibited": "Article 5 manipulation vulnerabilities social scoring biometric",
+            "transparency": "Article 52 deepfake synthetic content emotion recognition interaction",
+            "conformity assessment": "Article 43 notified body third party assessment",
+            "high-risk obligation": "Article 9 10 11 12 13 14 15 risk management data governance",
+        }
+
+        # Check if query matches any expansion keywords
+        for keyword, expansion in expansions.items():
+            if keyword in query_lower:
+                return f"{query} {expansion}"
+
+        return query
 
     def _assess_confidence(self, passages: List[RetrievedPassage]) -> str:
         """
