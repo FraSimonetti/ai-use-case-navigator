@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 
-from .routes import chat, search, obligations
+from .routes import chat, search, obligations, expert
 
 # Application metadata
 APP_VERSION = "1.0.0"
@@ -83,6 +83,7 @@ async def add_security_headers(request: Request, call_next):
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(search.router, prefix="/api/search", tags=["Search"])
 app.include_router(obligations.router, prefix="/api/obligations", tags=["Obligations"])
+app.include_router(expert.router, prefix="/api/expert", tags=["Expert"])
 
 
 @app.get("/health", tags=["Health"])

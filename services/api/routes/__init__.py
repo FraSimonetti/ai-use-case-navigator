@@ -1,1 +1,1 @@
-from . import chat, search, obligations  # noqa: F401
+from . import chat, search, obligations, expert  # noqa: F401

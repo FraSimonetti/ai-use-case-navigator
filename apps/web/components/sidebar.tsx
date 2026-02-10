@@ -21,6 +21,11 @@ const NAV_ITEMS = [
     description: 'Find your obligations'
   },
   {
+    href: '/expert',
+    label: 'RegolAI Expert',
+    description: 'AI classification interview'
+  },
+  {
     href: '/settings',
     label: 'Settings',
     description: 'Configure API keys'

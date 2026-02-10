@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Home', description: 'Main dashboard' },
   { href: '/chat', label: 'Smart Q&A', description: 'Ask regulatory questions' },
   { href: '/obligations', label: 'Use Case Analysis', description: 'Find your obligations' },
+  { href: '/expert', label: 'RegolAI Expert', description: 'AI classification interview' },
   { href: '/settings', label: 'Settings', description: 'Configure API keys' },
 ]
 
