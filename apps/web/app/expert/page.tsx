@@ -717,7 +717,7 @@ export default function ExpertPage() {
     try {
       const enrichedDescription = buildEnrichedDescription()
       const requestBody = {
-        use_case_description: enrichedDescription,
+        description: enrichedDescription,
         institution_type: formData.institution_type,
         role: formData.role,
         third_party_vendor: formData.third_party_vendor,
