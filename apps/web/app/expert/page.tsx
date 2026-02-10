@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { getLLMHeaders, hasLLMConfig } from '@/lib/llm-config'
 import { ObligationCard } from '@/components/obligations/obligation-card'
 import { TimelineView } from '@/components/obligations/timeline-view'
 import { ChatWidget } from '@/components/expert/chat-widget'
 
-// ─── Shared Data Arrays (mirrored from obligations page) ────────────────────
+// ─── Shared Data Arrays ─────────────────────────────────────────────────────
 
 const INSTITUTION_TYPES = [
   { value: 'bank', label: 'Bank / Credit Institution' },
@@ -19,6 +19,10 @@ const INSTITUTION_TYPES = [
   { value: 'fintech', label: 'Fintech Company' },
   { value: 'regtech', label: 'RegTech Provider' },
   { value: 'law_firm', label: 'Law Firm / Legal Services' },
+  { value: 'public_authority', label: 'Public Authority / Government' },
+  { value: 'educational_institution', label: 'Educational Institution' },
+  { value: 'healthcare_provider', label: 'Healthcare Provider' },
+  { value: 'law_enforcement', label: 'Law Enforcement Agency' },
   { value: 'other', label: 'Other Organization' },
 ]
 
@@ -27,205 +31,104 @@ const AI_ROLES = [
   { value: 'provider', label: 'Provider - I develop AI for others' },
   { value: 'provider_and_deployer', label: 'Both - I build and use my own AI' },
   { value: 'importer', label: 'Importer - I bring non-EU AI to market' },
+  { value: 'distributor', label: 'Distributor - I make AI available on EU market' },
 ]
-
-const USE_CASE_CATEGORIES = [
-  { id: 'credit_lending', label: 'Credit & Lending', annex: 'III.5(b)' },
-  { id: 'risk_compliance', label: 'Risk & Compliance', annex: 'Various' },
-  { id: 'trading_investment', label: 'Trading & Investment', annex: 'N/A' },
-  { id: 'insurance', label: 'Insurance', annex: 'III.5(c)*' },
-  { id: 'hr_employment', label: 'HR & Employment', annex: 'III.4' },
-  { id: 'customer_experience', label: 'Customer Experience', annex: 'Art.50' },
-  { id: 'operations', label: 'Operations', annex: 'N/A' },
-  { id: 'risk_models', label: 'Risk Models', annex: 'Various' },
-  { id: 'security', label: 'Security & Access', annex: 'III.1' },
-  { id: 'pricing', label: 'Pricing & Valuation', annex: 'Various' },
-  { id: 'legal_services', label: 'Legal Services', annex: 'III.8*' },
-]
-
-const USE_CASES = [
-  // Credit & Lending
-  { value: 'credit_scoring', label: 'Credit Scoring (Consumer)', category: 'credit_lending', risk: 'high_risk', description: 'AI evaluating creditworthiness of natural persons. HIGH-RISK under Annex III 5(b).', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'credit_scoring_consumer', label: 'Credit Scoring - Consumer Credit', category: 'credit_lending', risk: 'high_risk', description: 'AI scoring individuals for consumer credit products. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'credit_scoring_corporate', label: 'Credit Scoring - Corporate/B2B', category: 'credit_lending', risk: 'minimal_risk', description: 'AI scoring businesses (not natural persons). NOT high-risk - Annex III 5(b) covers only natural persons.', annex_ref: 'Not covered' },
-  { value: 'corporate_risk_opinion', label: 'Corporate Risk Opinion (Multi-Agent)', category: 'credit_lending', risk: 'minimal_risk', description: 'Multi-agent system producing B2B/corporate risk opinion. NOT high-risk.', annex_ref: 'Not covered' },
-  { value: 'loan_origination', label: 'Loan Origination', category: 'credit_lending', risk: 'high_risk', description: 'AI-assisted loan application processing for individuals. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'loan_approval', label: 'Loan Approval Decision', category: 'credit_lending', risk: 'high_risk', description: 'AI making loan approval decisions for individuals. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'loan_pricing', label: 'Loan Pricing', category: 'credit_lending', risk: 'context_dependent', description: 'AI determining interest rates. Context-dependent.', annex_ref: 'Art. 6(3)' },
-  { value: 'mortgage_underwriting', label: 'Mortgage Underwriting', category: 'credit_lending', risk: 'high_risk', description: 'AI for mortgage assessment and approval. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'credit_limit_setting', label: 'Credit Limit Setting', category: 'credit_lending', risk: 'high_risk', description: 'AI determining credit limits for individuals. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'affordability_assessment', label: 'Affordability Assessment', category: 'credit_lending', risk: 'high_risk', description: 'AI assessing affordability for credit decisions. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'collections_recovery', label: 'Collections & Recovery', category: 'credit_lending', risk: 'context_dependent', description: 'AI prioritizing debt collection. Context-dependent.', annex_ref: 'Art. 6(3)' },
-  { value: 'debt_restructuring', label: 'Debt Restructuring', category: 'credit_lending', risk: 'context_dependent', description: 'AI for debt restructuring decisions. Context-dependent.', annex_ref: 'Art. 6(3)' },
-  // Risk & Compliance
-  { value: 'fraud_detection', label: 'Fraud Detection (General)', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting fraudulent transactions.', annex_ref: 'Art. 6(3) / Annex III 5(b)' },
-  { value: 'fraud_detection_card', label: 'Card Fraud Detection', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting credit/debit card fraud.', annex_ref: 'Art. 6(3)' },
-  { value: 'fraud_detection_account', label: 'Account Takeover Detection', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting unauthorized account access.', annex_ref: 'Art. 6(3)' },
-  { value: 'fraud_detection_application', label: 'Application Fraud Detection', category: 'risk_compliance', risk: 'high_risk', description: 'AI detecting fraud in credit applications. HIGH-RISK.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'aml_kyc', label: 'AML/KYC Screening', category: 'risk_compliance', risk: 'context_dependent', description: 'AI for anti-money laundering screening.', annex_ref: 'Art. 6(3) / Annex III 5(b)' },
-  { value: 'aml_transaction_monitoring', label: 'AML Transaction Monitoring', category: 'risk_compliance', risk: 'context_dependent', description: 'AI monitoring for suspicious transactions.', annex_ref: 'Art. 6(3)' },
-  { value: 'aml_customer_risk_scoring', label: 'AML Customer Risk Scoring', category: 'risk_compliance', risk: 'context_dependent', description: 'AI scoring customer AML risk.', annex_ref: 'Art. 6(3)' },
-  { value: 'sanctions_screening', label: 'Sanctions Screening', category: 'risk_compliance', risk: 'context_dependent', description: 'AI screening against sanctions lists.', annex_ref: 'Art. 6(3)' },
-  { value: 'pep_screening', label: 'PEP Screening', category: 'risk_compliance', risk: 'context_dependent', description: 'AI screening for Politically Exposed Persons.', annex_ref: 'Art. 6(3)' },
-  { value: 'transaction_monitoring', label: 'Transaction Monitoring', category: 'risk_compliance', risk: 'context_dependent', description: 'AI monitoring for suspicious activity patterns.', annex_ref: 'Art. 6(3)' },
-  { value: 'trade_surveillance', label: 'Trade Surveillance', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting market abuse and manipulation.', annex_ref: 'Art. 6(3)' },
-  { value: 'market_abuse_detection', label: 'Market Abuse Detection', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting MAR violations.', annex_ref: 'Art. 6(3)' },
-  { value: 'insider_trading_detection', label: 'Insider Trading Detection', category: 'risk_compliance', risk: 'context_dependent', description: 'AI detecting potential insider trading.', annex_ref: 'Art. 6(3)' },
-  { value: 'regulatory_reporting', label: 'Regulatory Reporting', category: 'risk_compliance', risk: 'minimal_risk', description: 'AI automating regulatory report generation.', annex_ref: 'Not listed' },
-  { value: 'compliance_monitoring', label: 'Compliance Monitoring', category: 'risk_compliance', risk: 'minimal_risk', description: 'AI monitoring compliance with internal policies.', annex_ref: 'Not listed' },
-  // Trading & Investment
-  { value: 'algorithmic_trading', label: 'Algorithmic Trading', category: 'trading_investment', risk: 'minimal_risk', description: 'AI for automated trading. Regulated under MiFID II.', annex_ref: 'Not listed' },
-  { value: 'high_frequency_trading', label: 'High Frequency Trading', category: 'trading_investment', risk: 'minimal_risk', description: 'AI for HFT. Regulated under MiFID II Art. 17.', annex_ref: 'Not listed' },
-  { value: 'robo_advisory', label: 'Robo-Advisory (General)', category: 'trading_investment', risk: 'context_dependent', description: 'AI providing investment advice.', annex_ref: 'Art. 6(3)' },
-  { value: 'robo_advisory_retail', label: 'Robo-Advisory - Retail Clients', category: 'trading_investment', risk: 'context_dependent', description: 'AI investment advice for retail clients.', annex_ref: 'Art. 6(3)' },
-  { value: 'robo_advisory_professional', label: 'Robo-Advisory - Professional', category: 'trading_investment', risk: 'minimal_risk', description: 'AI investment advice for professionals.', annex_ref: 'Not listed' },
-  { value: 'portfolio_optimization', label: 'Portfolio Optimization', category: 'trading_investment', risk: 'minimal_risk', description: 'AI optimizing investment portfolios.', annex_ref: 'Not listed' },
-  { value: 'portfolio_rebalancing', label: 'Portfolio Rebalancing', category: 'trading_investment', risk: 'minimal_risk', description: 'AI for automatic portfolio rebalancing.', annex_ref: 'Not listed' },
-  { value: 'best_execution', label: 'Best Execution', category: 'trading_investment', risk: 'minimal_risk', description: 'AI achieving best execution for orders.', annex_ref: 'Not listed' },
-  { value: 'market_making', label: 'Market Making', category: 'trading_investment', risk: 'minimal_risk', description: 'AI for liquidity provision.', annex_ref: 'Not listed' },
-  { value: 'smart_order_routing', label: 'Smart Order Routing', category: 'trading_investment', risk: 'minimal_risk', description: 'AI routing orders to optimal venues.', annex_ref: 'Not listed' },
-  { value: 'esg_scoring', label: 'ESG Scoring', category: 'trading_investment', risk: 'minimal_risk', description: 'AI for ESG analysis and scoring.', annex_ref: 'Not listed' },
-  // Insurance
-  { value: 'insurance_pricing_life', label: 'Insurance Pricing - Life', category: 'insurance', risk: 'high_risk', description: 'HIGH-RISK: AI for life insurance pricing. Annex III 5(c).', annex_ref: 'Annex III, point 5(c)' },
-  { value: 'insurance_pricing_health', label: 'Insurance Pricing - Health', category: 'insurance', risk: 'high_risk', description: 'HIGH-RISK: AI for health insurance pricing. Annex III 5(c).', annex_ref: 'Annex III, point 5(c)' },
-  { value: 'insurance_pricing_property', label: 'Insurance Pricing - Property', category: 'insurance', risk: 'context_dependent', description: 'AI for property insurance pricing. NOT high-risk - context-dependent.', annex_ref: 'Not listed' },
-  { value: 'insurance_pricing_motor', label: 'Insurance Pricing - Motor', category: 'insurance', risk: 'context_dependent', description: 'AI for motor insurance pricing. NOT high-risk - context-dependent.', annex_ref: 'Not listed' },
-  { value: 'insurance_pricing_liability', label: 'Insurance Pricing - Liability', category: 'insurance', risk: 'context_dependent', description: 'AI for liability insurance pricing. NOT high-risk.', annex_ref: 'Not listed' },
-  { value: 'insurance_underwriting_life', label: 'Insurance Underwriting - Life', category: 'insurance', risk: 'high_risk', description: 'HIGH-RISK: AI for life insurance underwriting.', annex_ref: 'Annex III, point 5(c)' },
-  { value: 'insurance_underwriting_health', label: 'Insurance Underwriting - Health', category: 'insurance', risk: 'high_risk', description: 'HIGH-RISK: AI for health insurance underwriting.', annex_ref: 'Annex III, point 5(c)' },
-  { value: 'insurance_underwriting_property', label: 'Insurance Underwriting - Property', category: 'insurance', risk: 'context_dependent', description: 'AI for property insurance underwriting. Context-dependent.', annex_ref: 'Not listed' },
-  { value: 'claims_processing', label: 'Claims Processing', category: 'insurance', risk: 'context_dependent', description: 'AI for claims assessment. May be high-risk if denies claims.', annex_ref: 'Art. 6(3)' },
-  { value: 'claims_triage', label: 'Claims Triage', category: 'insurance', risk: 'minimal_risk', description: 'AI routing claims to appropriate handlers.', annex_ref: 'Not listed' },
-  { value: 'claims_fraud_detection', label: 'Claims Fraud Detection', category: 'insurance', risk: 'context_dependent', description: 'AI detecting fraudulent claims.', annex_ref: 'Art. 6(3)' },
-  { value: 'telematics_pricing', label: 'Telematics Pricing', category: 'insurance', risk: 'context_dependent', description: 'AI pricing based on driving behavior data.', annex_ref: 'Art. 6(3)' },
-  // HR & Employment
-  { value: 'cv_screening', label: 'CV/Resume Screening', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI filtering job applications. Annex III point 4(a).', annex_ref: 'Annex III, point 4(a)' },
-  { value: 'cv_parsing', label: 'CV Parsing (Data Extraction)', category: 'hr_employment', risk: 'context_dependent', description: 'AI extracting data from CVs. May qualify for Art. 6(3) exemption.', annex_ref: 'Art. 6(3)(d)' },
-  { value: 'candidate_ranking', label: 'Candidate Ranking', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI scoring/ranking candidates.', annex_ref: 'Annex III, point 4(a)' },
-  { value: 'candidate_matching', label: 'Candidate Matching', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI matching candidates to roles.', annex_ref: 'Annex III, point 4(a)' },
-  { value: 'interview_analysis', label: 'Interview Analysis', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI analyzing interviews.', annex_ref: 'Annex III, point 4(a)' },
-  { value: 'video_interview_analysis', label: 'Video Interview Analysis', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI analyzing video interviews.', annex_ref: 'Annex III, point 4(a)' },
-  { value: 'employee_performance', label: 'Performance Evaluation', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI evaluating employee performance.', annex_ref: 'Annex III, point 4(b)' },
-  { value: 'performance_prediction', label: 'Performance Prediction', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI predicting employee performance.', annex_ref: 'Annex III, point 4(b)' },
-  { value: 'promotion_decisions', label: 'Promotion Decisions', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI influencing promotions.', annex_ref: 'Annex III, point 4(b)' },
-  { value: 'termination_decisions', label: 'Termination Decisions', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI involved in termination decisions.', annex_ref: 'Annex III, point 4(b)' },
-  { value: 'employee_monitoring', label: 'Employee Monitoring', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI monitoring employee behavior.', annex_ref: 'Annex III, point 4(c)' },
-  { value: 'productivity_monitoring', label: 'Productivity Monitoring', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI monitoring productivity.', annex_ref: 'Annex III, point 4(c)' },
-  { value: 'task_allocation', label: 'Task Allocation', category: 'hr_employment', risk: 'high_risk', description: 'HIGH-RISK: AI allocating work tasks.', annex_ref: 'Annex III, point 4(c)' },
-  { value: 'workforce_planning', label: 'Workforce Planning', category: 'hr_employment', risk: 'context_dependent', description: 'AI forecasting workforce needs. Context-dependent.', annex_ref: 'Art. 6(3)' },
-  { value: 'compensation_analysis', label: 'Compensation Analysis', category: 'hr_employment', risk: 'context_dependent', description: 'AI analyzing compensation equity.', annex_ref: 'Art. 6(3)' },
-  { value: 'talent_retention', label: 'Talent Retention', category: 'hr_employment', risk: 'context_dependent', description: 'AI predicting employee flight risk.', annex_ref: 'Art. 6(3)' },
-  { value: 'learning_recommendation', label: 'Learning Recommendations', category: 'hr_employment', risk: 'minimal_risk', description: 'AI recommending training courses.', annex_ref: 'Not listed' },
-  // Customer Experience
-  { value: 'customer_chatbot', label: 'Customer Chatbot', category: 'customer_experience', risk: 'limited_risk', description: 'LIMITED RISK - requires transparency disclosure.', annex_ref: 'Art. 50(1)' },
-  { value: 'customer_chatbot_advisory', label: 'Advisory Chatbot', category: 'customer_experience', risk: 'limited_risk', description: 'AI chatbot providing advice. Art. 50 transparency required.', annex_ref: 'Art. 50(1)' },
-  { value: 'customer_chatbot_transactional', label: 'Transactional Chatbot', category: 'customer_experience', risk: 'limited_risk', description: 'AI chatbot executing transactions.', annex_ref: 'Art. 50(1)' },
-  { value: 'voice_assistant', label: 'Voice Assistant', category: 'customer_experience', risk: 'limited_risk', description: 'LIMITED RISK - requires transparency.', annex_ref: 'Art. 50(1)' },
-  { value: 'voice_biometric_auth', label: 'Voice Biometric Auth', category: 'customer_experience', risk: 'high_risk', description: 'Biometric identification - may be HIGH-RISK under Annex III point 1.', annex_ref: 'Annex III, point 1' },
-  { value: 'customer_onboarding', label: 'Customer Onboarding', category: 'customer_experience', risk: 'context_dependent', description: 'AI for customer verification. HIGH-RISK if can deny accounts.', annex_ref: 'Annex III, point 5(b)' },
-  { value: 'customer_onboarding_identity', label: 'Identity Verification', category: 'customer_experience', risk: 'context_dependent', description: 'AI verifying customer identity.', annex_ref: 'Art. 6(3)' },
-  { value: 'customer_segmentation', label: 'Customer Segmentation', category: 'customer_experience', risk: 'minimal_risk', description: 'AI segmenting customers for marketing.', annex_ref: 'Not listed' },
-  { value: 'churn_prediction', label: 'Churn Prediction', category: 'customer_experience', risk: 'minimal_risk', description: 'AI predicting customer churn.', annex_ref: 'Not listed' },
-  { value: 'cross_sell_upsell', label: 'Cross-sell / Upsell', category: 'customer_experience', risk: 'minimal_risk', description: 'AI for product recommendations.', annex_ref: 'Not listed' },
-  { value: 'next_best_action', label: 'Next Best Action', category: 'customer_experience', risk: 'minimal_risk', description: 'AI determining optimal customer interaction.', annex_ref: 'Not listed' },
-  { value: 'sentiment_analysis', label: 'Sentiment Analysis', category: 'customer_experience', risk: 'minimal_risk', description: 'AI analyzing customer sentiment.', annex_ref: 'Not listed' },
-  { value: 'complaint_routing', label: 'Complaint Routing', category: 'customer_experience', risk: 'minimal_risk', description: 'AI routing complaints to handlers.', annex_ref: 'Not listed' },
-  // Operations
-  { value: 'document_processing', label: 'Document Processing', category: 'operations', risk: 'minimal_risk', description: 'AI extracting data from documents.', annex_ref: 'Not listed' },
-  { value: 'document_classification', label: 'Document Classification', category: 'operations', risk: 'minimal_risk', description: 'AI categorizing documents.', annex_ref: 'Not listed' },
-  { value: 'ocr_data_extraction', label: 'OCR Data Extraction', category: 'operations', risk: 'minimal_risk', description: 'AI extracting text from images.', annex_ref: 'Not listed' },
-  { value: 'email_screening', label: 'Email Screening', category: 'operations', risk: 'minimal_risk', description: 'AI screening incoming emails.', annex_ref: 'Not listed' },
-  { value: 'contract_analysis', label: 'Contract Analysis', category: 'operations', risk: 'minimal_risk', description: 'AI analyzing contract terms.', annex_ref: 'Not listed' },
-  { value: 'contract_review', label: 'Contract Review', category: 'operations', risk: 'minimal_risk', description: 'AI reviewing contracts for issues.', annex_ref: 'Not listed' },
-  { value: 'process_automation', label: 'Process Automation', category: 'operations', risk: 'minimal_risk', description: 'AI-enhanced RPA.', annex_ref: 'Not listed' },
-  { value: 'intelligent_automation', label: 'Intelligent Automation', category: 'operations', risk: 'minimal_risk', description: 'AI for complex process automation.', annex_ref: 'Not listed' },
-  { value: 'data_quality_monitoring', label: 'Data Quality Monitoring', category: 'operations', risk: 'minimal_risk', description: 'AI monitoring data quality.', annex_ref: 'Not listed' },
-  { value: 'reconciliation', label: 'Reconciliation', category: 'operations', risk: 'minimal_risk', description: 'AI for automated reconciliation.', annex_ref: 'Not listed' },
-  // Risk Models
-  { value: 'internal_risk_models', label: 'Internal Risk Models', category: 'risk_models', risk: 'context_dependent', description: 'AI-enhanced internal capital models.', annex_ref: 'Art. 6(3)' },
-  { value: 'irb_models', label: 'IRB Models', category: 'risk_models', risk: 'context_dependent', description: 'AI for Internal Ratings Based models.', annex_ref: 'Art. 6(3)' },
-  { value: 'market_risk_modeling', label: 'Market Risk Modeling', category: 'risk_models', risk: 'minimal_risk', description: 'AI for market risk assessment.', annex_ref: 'Not listed' },
-  { value: 'var_models', label: 'VaR Models', category: 'risk_models', risk: 'minimal_risk', description: 'AI for Value at Risk calculations.', annex_ref: 'Not listed' },
-  { value: 'credit_risk_modeling', label: 'Credit Risk Modeling', category: 'risk_models', risk: 'context_dependent', description: 'AI for portfolio credit risk.', annex_ref: 'Art. 6(3)' },
-  { value: 'pd_models', label: 'PD Models', category: 'risk_models', risk: 'context_dependent', description: 'AI for Probability of Default.', annex_ref: 'Art. 6(3)' },
-  { value: 'lgd_models', label: 'LGD Models', category: 'risk_models', risk: 'minimal_risk', description: 'AI for Loss Given Default.', annex_ref: 'Not listed' },
-  { value: 'operational_risk', label: 'Operational Risk', category: 'risk_models', risk: 'minimal_risk', description: 'AI for operational risk assessment.', annex_ref: 'Not listed' },
-  { value: 'liquidity_risk', label: 'Liquidity Risk', category: 'risk_models', risk: 'minimal_risk', description: 'AI for liquidity risk.', annex_ref: 'Not listed' },
-  { value: 'climate_risk', label: 'Climate Risk', category: 'risk_models', risk: 'minimal_risk', description: 'AI for climate risk modeling.', annex_ref: 'Not listed' },
-  { value: 'stress_testing', label: 'Stress Testing', category: 'risk_models', risk: 'minimal_risk', description: 'AI for stress test scenarios.', annex_ref: 'Not listed' },
-  { value: 'model_validation', label: 'Model Validation', category: 'risk_models', risk: 'minimal_risk', description: 'AI assisting model validation.', annex_ref: 'Not listed' },
-  // Security & Access
-  { value: 'access_control', label: 'Access Control', category: 'security', risk: 'context_dependent', description: 'AI for access control decisions.', annex_ref: 'Art. 6(3)' },
-  { value: 'biometric_authentication', label: 'Biometric Authentication', category: 'security', risk: 'high_risk', description: 'HIGH-RISK: Biometric ID. Annex III point 1.', annex_ref: 'Annex III, point 1' },
-  { value: 'facial_recognition', label: 'Facial Recognition', category: 'security', risk: 'high_risk', description: 'HIGH-RISK: Biometric identification. Annex III point 1.', annex_ref: 'Annex III, point 1' },
-  { value: 'behavioral_biometrics', label: 'Behavioral Biometrics', category: 'security', risk: 'context_dependent', description: 'AI analyzing behavioral patterns for auth.', annex_ref: 'Art. 6(3)' },
-  { value: 'anomaly_detection_security', label: 'Security Anomaly Detection', category: 'security', risk: 'minimal_risk', description: 'AI detecting security anomalies.', annex_ref: 'Not listed' },
-  { value: 'cyber_threat_detection', label: 'Cyber Threat Detection', category: 'security', risk: 'minimal_risk', description: 'AI detecting cyber threats.', annex_ref: 'Not listed' },
-  // Pricing & Valuation
-  { value: 'dynamic_pricing', label: 'Dynamic Pricing', category: 'pricing', risk: 'context_dependent', description: 'AI for dynamic price adjustment.', annex_ref: 'Art. 6(3)' },
-  { value: 'asset_valuation', label: 'Asset Valuation', category: 'pricing', risk: 'minimal_risk', description: 'AI for asset valuation.', annex_ref: 'Not listed' },
-  { value: 'collateral_valuation', label: 'Collateral Valuation', category: 'pricing', risk: 'context_dependent', description: 'AI valuing collateral.', annex_ref: 'Art. 6(3)' },
-  { value: 'real_estate_valuation', label: 'Real Estate Valuation', category: 'pricing', risk: 'context_dependent', description: 'AI valuing properties.', annex_ref: 'Art. 6(3)' },
-  // Legal Services
-  { value: 'legal_document_review', label: 'Legal Document Review', category: 'legal_services', risk: 'minimal_risk', description: 'AI reviewing legal documents. Analysis tool with lawyer oversight.', annex_ref: 'Not listed' },
-  { value: 'legal_research', label: 'Legal Research & Case Law', category: 'legal_services', risk: 'minimal_risk', description: 'AI searching case law and precedents.', annex_ref: 'Not listed' },
-  { value: 'ediscovery', label: 'eDiscovery', category: 'legal_services', risk: 'minimal_risk', description: 'AI for electronic discovery in litigation.', annex_ref: 'Not listed' },
-  { value: 'contract_drafting_legal', label: 'Contract Drafting (Legal)', category: 'legal_services', risk: 'minimal_risk', description: 'AI-assisted contract generation.', annex_ref: 'Not listed' },
-  { value: 'due_diligence_legal', label: 'Legal Due Diligence', category: 'legal_services', risk: 'minimal_risk', description: 'AI analyzing documents for M&A.', annex_ref: 'Not listed' },
-  { value: 'legal_brief_generation', label: 'Legal Brief Generation', category: 'legal_services', risk: 'minimal_risk', description: 'AI drafting legal briefs.', annex_ref: 'Not listed' },
-  { value: 'case_outcome_prediction', label: 'Case Outcome Prediction', category: 'legal_services', risk: 'context_dependent', description: 'AI predicting litigation outcomes. Context-dependent.', annex_ref: 'Art. 6(3) / Annex III 8' },
-  { value: 'client_intake_legal', label: 'Client Intake (Legal)', category: 'legal_services', risk: 'minimal_risk', description: 'AI triaging legal inquiries.', annex_ref: 'Not listed' },
-  { value: 'legal_billing_tracking', label: 'Legal Billing & Time Tracking', category: 'legal_services', risk: 'minimal_risk', description: 'AI tracking billable hours.', annex_ref: 'Not listed' },
-  { value: 'legal_compliance_monitoring', label: 'Legal Compliance Monitoring', category: 'legal_services', risk: 'minimal_risk', description: 'AI monitoring client compliance.', annex_ref: 'Not listed' },
-  { value: 'court_filing_automation', label: 'Court Filing Automation', category: 'legal_services', risk: 'minimal_risk', description: 'AI preparing court filings.', annex_ref: 'Not listed' },
-  { value: 'witness_credibility_analysis', label: 'Witness Credibility Analysis', category: 'legal_services', risk: 'high_risk', description: 'HIGH-RISK: AI analyzing witness testimony.', annex_ref: 'Annex III, point 8' },
-]
-
-// ─── Use-case auto-defaults ──────────────────────────────────────────────────
-
-const USE_CASE_DEFAULTS: Record<string, Partial<FormData>> = {
-  credit_scoring: { involves_natural_persons: true, is_high_impact: true },
-  credit_scoring_consumer: { involves_natural_persons: true, is_high_impact: true },
-  loan_origination: { involves_natural_persons: true, is_high_impact: true },
-  loan_approval: { involves_natural_persons: true, is_high_impact: true, fully_automated: true, denies_service_access: true },
-  mortgage_underwriting: { involves_natural_persons: true, is_high_impact: true },
-  credit_limit_setting: { involves_natural_persons: true, is_high_impact: true },
-  affordability_assessment: { involves_natural_persons: true, is_high_impact: true },
-  insurance_pricing_life: { involves_natural_persons: true, life_health_insurance: true, is_high_impact: true },
-  insurance_pricing_health: { involves_natural_persons: true, life_health_insurance: true, uses_special_category_data: true, is_high_impact: true },
-  insurance_underwriting_life: { involves_natural_persons: true, life_health_insurance: true, is_high_impact: true },
-  insurance_underwriting_health: { involves_natural_persons: true, life_health_insurance: true, uses_special_category_data: true, is_high_impact: true },
-  cv_screening: { involves_natural_persons: true, is_high_impact: true },
-  candidate_ranking: { involves_natural_persons: true, is_high_impact: true },
-  employee_performance: { involves_natural_persons: true, is_high_impact: true },
-  employee_monitoring: { involves_natural_persons: true },
-  customer_chatbot: { involves_natural_persons: true },
-  biometric_authentication: { involves_natural_persons: true, uses_special_category_data: true },
-  facial_recognition: { involves_natural_persons: true, uses_special_category_data: true },
-}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface FormData {
+  // Section 1: AI System Definition
   use_case_description: string
+  ai_techniques: string[] // ML, logic_based, statistical, bayesian, search_optimization
+  outputs_generated: string[] // predictions, recommendations, decisions, content
+  autonomy_level: string // fully_automated, human_in_loop, human_on_loop, human_oversight
+
+  // Section 2: Organization
   institution_type: string
   role: string
-  use_case: string
   third_party_vendor: boolean
-  involves_natural_persons: boolean
-  fully_automated: boolean
-  denies_service_access: boolean
-  affects_legal_rights: boolean
-  uses_special_category_data: boolean
+
+  // Section 3: Prohibited Practices (Article 5) - tri-state
+  subliminal_manipulation: boolean | null
+  exploits_vulnerabilities: boolean | null
+  social_scoring_public: boolean | null
+  realtime_biometric_public: boolean | null
+  emotion_recognition_workplace_education: boolean | null
+  biometric_categorization_sensitive: boolean | null
+  facial_image_scraping: boolean | null
+
+  // Section 4: High-Risk Assessment (Annex III)
+  // 4.1: Biometric (Annex III.1)
+  biometric_identification: boolean
+  biometric_categorization: boolean
+  remote_biometric_identification: boolean
+  // 4.2: Critical Infrastructure (Annex III.2)
+  critical_infrastructure_safety: boolean
+  manages_utilities: boolean
+  // 4.3: Education (Annex III.3)
+  educational_access: boolean
+  educational_assessment: boolean
+  educational_monitoring: boolean
+  // 4.4: Employment (Annex III.4)
+  recruitment_selection: boolean
+  task_allocation_employment: boolean
+  performance_monitoring: boolean
+  promotion_termination: boolean
+  // 4.5: Essential Services (Annex III.5)
+  emergency_services: boolean
+  public_assistance_benefits: boolean
+  creditworthiness_natural_persons: boolean
+  insurance_life_health: boolean
+  // 4.6: Law Enforcement (Annex III.6)
+  law_enforcement_risk_assessment: boolean
+  law_enforcement_polygraph: boolean
+  law_enforcement_emotion_recognition: boolean
+  law_enforcement_deepfake_detection: boolean
+  law_enforcement_evidence_evaluation: boolean
+  law_enforcement_profiling: boolean
+  law_enforcement_crime_analytics: boolean
+  // 4.7: Migration/Asylum/Border (Annex III.7)
+  migration_polygraph: boolean
+  migration_risk_assessment: boolean
+  migration_application_examination: boolean
+  migration_border_detection: boolean
+  // 4.8: Justice (Annex III.8)
+  justice_research_interpretation: boolean
+  justice_law_application: boolean
+
+  // Section 5: Transparency Obligations (Article 52)
+  natural_person_interaction: boolean
+  emotion_recognition_biometric: boolean
+  deepfake_generation: boolean
+  synthetic_content_generation: boolean
+
+  // Section 6: Deployment Context
+  intended_purpose: string
+  deployment_environment: string
+  primary_user_category: string
+  geographic_scope: string
   vulnerable_groups: boolean
-  is_high_impact: boolean
+
+  // Section 7: Data Governance
+  uses_special_category_data: boolean
   involves_profiling: boolean
+  training_data_documented: boolean
+  data_quality_measures: boolean
+
+  // Section 8: Risk Management & Compliance
+  risk_management_system: boolean
+  human_oversight_measures: boolean
+  conformity_assessment_conducted: boolean
+  post_market_monitoring: boolean
+
+  // Section 9: Technical & GPAI (existing)
   uses_gpai_model: boolean
   gpai_with_systemic_risk: boolean
   safety_component: boolean
   cross_border_processing: boolean
   critical_ict_service: boolean
-  life_health_insurance: boolean
+
+  // Section 10: Sectoral (existing)
   provides_investment_advice: boolean
   processes_payments: boolean
   performs_aml_obligations: boolean
@@ -260,6 +163,20 @@ interface TimelineEvent {
   impact: string
 }
 
+interface ValidationErrors {
+  description?: string
+  ai_techniques?: string
+  autonomy_level?: string
+  institution_type?: string
+  role?: string
+  api_key?: string
+  prohibited_practices?: string
+  intended_purpose?: string
+  deployment_environment?: string
+  user_category?: string
+  geographic_scope?: string
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ApiResults = any
 
@@ -267,6 +184,7 @@ type ApiResults = any
 
 function getRiskBadgeClasses(risk: string): string {
   switch (risk) {
+    case 'prohibited': return 'bg-red-900 text-white border-red-900'
     case 'high_risk': return 'bg-red-100 text-red-800 border-red-300'
     case 'limited_risk': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
     case 'minimal_risk': return 'bg-green-100 text-green-800 border-green-300'
@@ -277,6 +195,7 @@ function getRiskBadgeClasses(risk: string): string {
 }
 
 function getRiskLabel(risk: string): string {
+  if (risk === 'prohibited') return 'PROHIBITED'
   if (risk === 'high_risk') return 'HIGH-RISK'
   if (risk === 'limited_risk') return 'LIMITED RISK'
   if (risk === 'minimal_risk') return 'MINIMAL RISK'
@@ -285,33 +204,160 @@ function getRiskLabel(risk: string): string {
   return risk.replace(/_/g, ' ').toUpperCase()
 }
 
-function formatRiskLevel(risk: string): string {
-  return risk.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-}
-
 const INITIAL_FORM: FormData = {
   use_case_description: '',
+  ai_techniques: [],
+  outputs_generated: [],
+  autonomy_level: '',
   institution_type: '',
   role: '',
-  use_case: '',
   third_party_vendor: false,
-  involves_natural_persons: true,
-  fully_automated: false,
-  denies_service_access: false,
-  affects_legal_rights: false,
-  uses_special_category_data: false,
+  subliminal_manipulation: null,
+  exploits_vulnerabilities: null,
+  social_scoring_public: null,
+  realtime_biometric_public: null,
+  emotion_recognition_workplace_education: null,
+  biometric_categorization_sensitive: null,
+  facial_image_scraping: null,
+  biometric_identification: false,
+  biometric_categorization: false,
+  remote_biometric_identification: false,
+  critical_infrastructure_safety: false,
+  manages_utilities: false,
+  educational_access: false,
+  educational_assessment: false,
+  educational_monitoring: false,
+  recruitment_selection: false,
+  task_allocation_employment: false,
+  performance_monitoring: false,
+  promotion_termination: false,
+  emergency_services: false,
+  public_assistance_benefits: false,
+  creditworthiness_natural_persons: false,
+  insurance_life_health: false,
+  law_enforcement_risk_assessment: false,
+  law_enforcement_polygraph: false,
+  law_enforcement_emotion_recognition: false,
+  law_enforcement_deepfake_detection: false,
+  law_enforcement_evidence_evaluation: false,
+  law_enforcement_profiling: false,
+  law_enforcement_crime_analytics: false,
+  migration_polygraph: false,
+  migration_risk_assessment: false,
+  migration_application_examination: false,
+  migration_border_detection: false,
+  justice_research_interpretation: false,
+  justice_law_application: false,
+  natural_person_interaction: false,
+  emotion_recognition_biometric: false,
+  deepfake_generation: false,
+  synthetic_content_generation: false,
+  intended_purpose: '',
+  deployment_environment: '',
+  primary_user_category: '',
+  geographic_scope: '',
   vulnerable_groups: false,
-  is_high_impact: false,
+  uses_special_category_data: false,
   involves_profiling: false,
+  training_data_documented: false,
+  data_quality_measures: false,
+  risk_management_system: false,
+  human_oversight_measures: false,
+  conformity_assessment_conducted: false,
+  post_market_monitoring: false,
   uses_gpai_model: false,
   gpai_with_systemic_risk: false,
   safety_component: false,
   cross_border_processing: false,
   critical_ict_service: false,
-  life_health_insurance: false,
   provides_investment_advice: false,
   processes_payments: false,
   performs_aml_obligations: false,
+}
+
+const PROHIBITED_PRACTICES_QUESTIONS: {
+  key: keyof Pick<FormData, 'subliminal_manipulation' | 'exploits_vulnerabilities' | 'social_scoring_public' | 'realtime_biometric_public' | 'emotion_recognition_workplace_education' | 'biometric_categorization_sensitive' | 'facial_image_scraping'>
+  question: string
+  article: string
+}[] = [
+  {
+    key: 'subliminal_manipulation',
+    question: 'Does it use subliminal techniques to materially distort behavior causing physical/psychological harm?',
+    article: 'Article 5(1)(a)',
+  },
+  {
+    key: 'exploits_vulnerabilities',
+    question: 'Does it exploit vulnerabilities due to age, disability, or social/economic situation causing harm?',
+    article: 'Article 5(1)(b)',
+  },
+  {
+    key: 'social_scoring_public',
+    question: 'Is it used by public authorities for social scoring leading to detrimental treatment?',
+    article: 'Article 5(1)(c)',
+  },
+  {
+    key: 'realtime_biometric_public',
+    question: 'Does it perform real-time remote biometric identification in publicly accessible spaces? (Law enforcement exceptions apply)',
+    article: 'Article 5(1)(h)',
+  },
+  {
+    key: 'emotion_recognition_workplace_education',
+    question: 'Does it recognize emotions in the workplace or educational institutions?',
+    article: 'Article 5(1)(f)',
+  },
+  {
+    key: 'biometric_categorization_sensitive',
+    question: 'Does it categorize persons based on biometric data to infer race, political opinions, religion, sexual orientation, etc.?',
+    article: 'Article 5(1)(e)',
+  },
+  {
+    key: 'facial_image_scraping',
+    question: 'Does it scrape facial images from the internet or CCTV to create/expand facial recognition databases?',
+    article: 'Article 5(1)(g)',
+  },
+]
+
+// ─── Tri-State Toggle Component ──────────────────────────────────────────────
+
+function TriStateToggle({
+  value,
+  onChange,
+  error,
+}: {
+  value: boolean | null
+  onChange: (v: boolean) => void
+  error?: boolean
+}) {
+  return (
+    <div className="flex gap-1.5">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border-2 ${
+          value === true
+            ? 'bg-red-600 text-white border-red-600 shadow-md'
+            : error
+              ? 'bg-white text-gray-500 border-red-300 hover:border-red-400 hover:text-red-600'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-red-400 hover:text-red-600'
+        }`}
+      >
+        Yes
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border-2 ${
+          value === false
+            ? 'bg-gray-600 text-white border-gray-600 shadow-md'
+            : error
+              ? 'bg-white text-gray-500 border-red-300 hover:border-gray-400 hover:text-gray-600'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-600'
+        }`}
+      >
+        No
+      </button>
+    </div>
+  )
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -322,77 +368,365 @@ export default function ExpertPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [hasConfig, setHasConfig] = useState(false)
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [useCaseSearch, setUseCaseSearch] = useState('')
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showAnnexIII, setShowAnnexIII] = useState(false)
+  const [showCompliance, setShowCompliance] = useState(false)
+  const [showTechnical, setShowTechnical] = useState(false)
   const [showSectoral, setShowSectoral] = useState(false)
   const [expandedRegulation, setExpandedRegulation] = useState<string | null>(null)
+  const [errors, setErrors] = useState<ValidationErrors>({})
+  const [aiAnalysis, setAiAnalysis] = useState<string>('')
+
+  const descriptionRef = useRef<HTMLTextAreaElement>(null)
+  const aiTechniquesRef = useRef<HTMLDivElement>(null)
+  const autonomyRef = useRef<HTMLDivElement>(null)
+  const institutionRef = useRef<HTMLSelectElement>(null)
+  const roleRef = useRef<HTMLSelectElement>(null)
+  const prohibitedRef = useRef<HTMLDivElement>(null)
+  const purposeRef = useRef<HTMLInputElement>(null)
+  const deploymentRef = useRef<HTMLSelectElement>(null)
+  const userCategoryRef = useRef<HTMLSelectElement>(null)
+  const geographicRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
     setHasConfig(hasLLMConfig())
   }, [])
 
-  // Filtered use cases
-  const filteredUseCases = useMemo(() => {
-    return USE_CASES.filter((uc) => {
-      const matchesCategory = !selectedCategory || uc.category === selectedCategory
-      const matchesSearch = !useCaseSearch ||
-        uc.label.toLowerCase().includes(useCaseSearch.toLowerCase()) ||
-        uc.description.toLowerCase().includes(useCaseSearch.toLowerCase())
-      return matchesCategory && matchesSearch
-    })
-  }, [selectedCategory, useCaseSearch])
-
-  const selectedUseCase = USE_CASES.find(u => u.value === formData.use_case)
-
-  // When user selects a use case, auto-set context booleans
-  const handleUseCaseSelect = (value: string) => {
-    const defaults = USE_CASE_DEFAULTS[value] || {}
-    setFormData(prev => ({
-      ...prev,
-      use_case: value,
-      ...defaults,
-    }))
-  }
-
-  const updateForm = (key: keyof FormData, value: string | boolean) => {
+  const updateForm = <K extends keyof FormData>(key: K, value: FormData[K]) => {
     setFormData(prev => ({ ...prev, [key]: value }))
+    // Clear relevant errors
+    if (key === 'use_case_description' && errors.description) {
+      setErrors(prev => ({ ...prev, description: undefined }))
+    }
+    if (key === 'ai_techniques' && errors.ai_techniques) {
+      setErrors(prev => ({ ...prev, ai_techniques: undefined }))
+    }
+    if (key === 'autonomy_level' && errors.autonomy_level) {
+      setErrors(prev => ({ ...prev, autonomy_level: undefined }))
+    }
+    if (key === 'institution_type' && errors.institution_type) {
+      setErrors(prev => ({ ...prev, institution_type: undefined }))
+    }
+    if (key === 'role' && errors.role) {
+      setErrors(prev => ({ ...prev, role: undefined }))
+    }
+    if (key === 'intended_purpose' && errors.intended_purpose) {
+      setErrors(prev => ({ ...prev, intended_purpose: undefined }))
+    }
+    if (key === 'deployment_environment' && errors.deployment_environment) {
+      setErrors(prev => ({ ...prev, deployment_environment: undefined }))
+    }
+    if (key === 'primary_user_category' && errors.user_category) {
+      setErrors(prev => ({ ...prev, user_category: undefined }))
+    }
+    if (key === 'geographic_scope' && errors.geographic_scope) {
+      setErrors(prev => ({ ...prev, geographic_scope: undefined }))
+    }
+    if (PROHIBITED_PRACTICES_QUESTIONS.some(q => q.key === key) && errors.prohibited_practices) {
+      const updated = { ...formData, [key]: value }
+      const allAnswered = PROHIBITED_PRACTICES_QUESTIONS.every(q => updated[q.key] !== null)
+      if (allAnswered) {
+        setErrors(prev => ({ ...prev, prohibited_practices: undefined }))
+      }
+    }
   }
+
+  const toggleArrayValue = (key: keyof Pick<FormData, 'ai_techniques' | 'outputs_generated'>, value: string) => {
+    setFormData(prev => {
+      const current = prev[key] as string[]
+      const updated = current.includes(value)
+        ? current.filter(v => v !== value)
+        : [...current, value]
+      return { ...prev, [key]: updated }
+    })
+    if (key === 'ai_techniques' && errors.ai_techniques) {
+      setErrors(prev => ({ ...prev, ai_techniques: undefined }))
+    }
+  }
+
+  // ─── Validation ──────────────────────────────────────────────────────────
+
+  const validate = (): boolean => {
+    const newErrors: ValidationErrors = {}
+    let firstErrorRef: React.RefObject<HTMLElement | null> | null = null
+
+    if (!hasConfig) {
+      newErrors.api_key = 'API key is required. Please configure your LLM provider in Settings.'
+    }
+
+    if (!formData.use_case_description || formData.use_case_description.trim().length < 50) {
+      newErrors.description = 'Please provide a detailed description of at least 50 characters.'
+      if (!firstErrorRef) firstErrorRef = descriptionRef
+    }
+
+    if (formData.ai_techniques.length === 0) {
+      newErrors.ai_techniques = 'Please select at least one AI technique your system uses.'
+      if (!firstErrorRef) firstErrorRef = aiTechniquesRef
+    }
+
+    if (!formData.autonomy_level) {
+      newErrors.autonomy_level = 'Please specify the level of autonomy of your AI system.'
+      if (!firstErrorRef) firstErrorRef = autonomyRef
+    }
+
+    if (!formData.institution_type) {
+      newErrors.institution_type = 'Please select your institution type.'
+      if (!firstErrorRef) firstErrorRef = institutionRef
+    }
+
+    if (!formData.role) {
+      newErrors.role = 'Please select your AI role.'
+      if (!firstErrorRef) firstErrorRef = roleRef
+    }
+
+    const unanswered = PROHIBITED_PRACTICES_QUESTIONS.filter(q => formData[q.key] === null)
+    if (unanswered.length > 0) {
+      newErrors.prohibited_practices = `Please answer all ${PROHIBITED_PRACTICES_QUESTIONS.length} prohibited practices questions (${unanswered.length} remaining).`
+      if (!firstErrorRef) firstErrorRef = prohibitedRef
+    }
+
+    if (!formData.intended_purpose || formData.intended_purpose.trim().length < 10) {
+      newErrors.intended_purpose = 'Please describe the intended purpose (at least 10 characters).'
+      if (!firstErrorRef) firstErrorRef = purposeRef
+    }
+
+    if (!formData.deployment_environment) {
+      newErrors.deployment_environment = 'Please select deployment environment.'
+      if (!firstErrorRef) firstErrorRef = deploymentRef
+    }
+
+    if (!formData.primary_user_category) {
+      newErrors.user_category = 'Please select primary user category.'
+      if (!firstErrorRef) firstErrorRef = userCategoryRef
+    }
+
+    if (!formData.geographic_scope) {
+      newErrors.geographic_scope = 'Please select geographic scope.'
+      if (!firstErrorRef) firstErrorRef = geographicRef
+    }
+
+    setErrors(newErrors)
+
+    if (Object.keys(newErrors).length > 0) {
+      if (firstErrorRef?.current) {
+        firstErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+      return false
+    }
+
+    return true
+  }
+
+  // ─── Build enriched description for LLM ──────────────────────────────────
+
+  const buildEnrichedDescription = (): string => {
+    const lines: string[] = []
+    lines.push(`Use Case Description: ${formData.use_case_description.trim()}`)
+    lines.push(`Intended Purpose: ${formData.intended_purpose.trim()}`)
+    lines.push('')
+    lines.push(`Organization: ${INSTITUTION_TYPES.find(t => t.value === formData.institution_type)?.label || formData.institution_type} (Role: ${AI_ROLES.find(r => r.value === formData.role)?.label || formData.role})`)
+    if (formData.third_party_vendor) lines.push('Third-party vendor: Yes')
+    lines.push('')
+    lines.push('AI System Definition (Article 3, Annex I):')
+    lines.push(`- AI Techniques: ${formData.ai_techniques.join(', ') || 'Not specified'}`)
+    lines.push(`- Outputs: ${formData.outputs_generated.join(', ') || 'Not specified'}`)
+    lines.push(`- Autonomy: ${formData.autonomy_level.replace(/_/g, ' ')}`)
+
+    const hasProhibited = PROHIBITED_PRACTICES_QUESTIONS.some(q => formData[q.key] === true)
+    if (hasProhibited) {
+      lines.push('')
+      lines.push('PROHIBITED PRACTICES DETECTED (Article 5):')
+      PROHIBITED_PRACTICES_QUESTIONS.forEach(q => {
+        if (formData[q.key] === true) {
+          lines.push(`- ${q.question} (${q.article})`)
+        }
+      })
+    }
+
+    const annexIII: string[] = []
+    if (formData.biometric_identification || formData.biometric_categorization || formData.remote_biometric_identification) {
+      annexIII.push('Biometric identification/categorization (Annex III.1)')
+    }
+    if (formData.critical_infrastructure_safety || formData.manages_utilities) {
+      annexIII.push('Critical infrastructure (Annex III.2)')
+    }
+    if (formData.educational_access || formData.educational_assessment || formData.educational_monitoring) {
+      annexIII.push('Education/training (Annex III.3)')
+    }
+    if (formData.recruitment_selection || formData.task_allocation_employment || formData.performance_monitoring || formData.promotion_termination) {
+      annexIII.push('Employment/HR (Annex III.4)')
+    }
+    if (formData.emergency_services || formData.public_assistance_benefits || formData.creditworthiness_natural_persons || formData.insurance_life_health) {
+      annexIII.push('Essential services (Annex III.5)')
+    }
+    if (formData.law_enforcement_risk_assessment || formData.law_enforcement_polygraph || formData.law_enforcement_emotion_recognition || formData.law_enforcement_deepfake_detection || formData.law_enforcement_evidence_evaluation || formData.law_enforcement_profiling || formData.law_enforcement_crime_analytics) {
+      annexIII.push('Law enforcement (Annex III.6)')
+    }
+    if (formData.migration_polygraph || formData.migration_risk_assessment || formData.migration_application_examination || formData.migration_border_detection) {
+      annexIII.push('Migration/asylum/border control (Annex III.7)')
+    }
+    if (formData.justice_research_interpretation || formData.justice_law_application) {
+      annexIII.push('Administration of justice (Annex III.8)')
+    }
+
+    if (annexIII.length > 0) {
+      lines.push('')
+      lines.push('High-Risk Categories (Annex III):')
+      annexIII.forEach(cat => lines.push(`- ${cat}`))
+    }
+
+    lines.push('')
+    lines.push('Deployment Context:')
+    lines.push(`- Environment: ${formData.deployment_environment.replace(/_/g, ' ')}`)
+    lines.push(`- Users: ${formData.primary_user_category.replace(/_/g, ' ')}`)
+    lines.push(`- Geographic scope: ${formData.geographic_scope.replace(/_/g, ' ')}`)
+    lines.push(`- Vulnerable groups: ${formData.vulnerable_groups ? 'Yes' : 'No'}`)
+
+    if (formData.uses_special_category_data || formData.involves_profiling || formData.training_data_documented || formData.data_quality_measures) {
+      lines.push('')
+      lines.push('Data Governance:')
+      if (formData.uses_special_category_data) lines.push('- Uses special category data (GDPR Art. 9)')
+      if (formData.involves_profiling) lines.push('- Involves profiling')
+      if (formData.training_data_documented) lines.push('- Training data documented')
+      if (formData.data_quality_measures) lines.push('- Data quality measures implemented')
+    }
+
+    if (formData.risk_management_system || formData.human_oversight_measures || formData.conformity_assessment_conducted || formData.post_market_monitoring) {
+      lines.push('')
+      lines.push('Compliance Measures:')
+      if (formData.risk_management_system) lines.push('- Risk management system in place')
+      if (formData.human_oversight_measures) lines.push('- Human oversight measures')
+      if (formData.conformity_assessment_conducted) lines.push('- Conformity assessment conducted')
+      if (formData.post_market_monitoring) lines.push('- Post-market monitoring system')
+    }
+
+    if (formData.uses_gpai_model || formData.gpai_with_systemic_risk || formData.safety_component) {
+      lines.push('')
+      lines.push('Technical Context:')
+      if (formData.uses_gpai_model) lines.push('- Uses GPAI model')
+      if (formData.gpai_with_systemic_risk) lines.push('- GPAI with systemic risk (>10^25 FLOPs)')
+      if (formData.safety_component) lines.push('- Safety component')
+      if (formData.critical_ict_service) lines.push('- Critical ICT service (DORA)')
+    }
+
+    return lines.join('\n')
+  }
+
+  // ─── Submit: Two-Step API Strategy ───────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!formData.use_case && !formData.use_case_description) return
+    if (!validate()) return
+
     setIsLoading(true)
     setResults(null)
+    setAiAnalysis('')
+
     try {
-      const response = await fetch('/api/obligations/find', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      })
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`)
+      const enrichedDescription = buildEnrichedDescription()
+      const requestBody = {
+        use_case_description: enrichedDescription,
+        institution_type: formData.institution_type,
+        role: formData.role,
+        third_party_vendor: formData.third_party_vendor,
+        involves_natural_persons: formData.primary_user_category === 'consumers' || formData.creditworthiness_natural_persons || formData.insurance_life_health,
+        fully_automated: formData.autonomy_level === 'fully_automated',
+        denies_service_access: formData.creditworthiness_natural_persons || formData.public_assistance_benefits || formData.recruitment_selection,
+        affects_legal_rights: formData.justice_law_application || formData.creditworthiness_natural_persons,
+        uses_special_category_data: formData.uses_special_category_data,
+        vulnerable_groups: formData.vulnerable_groups,
+        is_high_impact: formData.creditworthiness_natural_persons || formData.insurance_life_health || formData.recruitment_selection,
+        involves_profiling: formData.involves_profiling,
+        uses_gpai_model: formData.uses_gpai_model,
+        gpai_with_systemic_risk: formData.gpai_with_systemic_risk,
+        safety_component: formData.safety_component,
+        cross_border_processing: formData.cross_border_processing,
+        critical_ict_service: formData.critical_ict_service,
+        life_health_insurance: formData.insurance_life_health,
+        provides_investment_advice: formData.provides_investment_advice,
+        processes_payments: formData.processes_payments,
+        performs_aml_obligations: formData.performs_aml_obligations,
       }
-      const data = await response.json()
-      setResults(data)
-      // Scroll to results
+
+      const step1Response = await fetch('/api/obligations/analyze-custom', {
+        method: 'POST',
+        headers: getLLMHeaders(),
+        body: JSON.stringify(requestBody),
+      })
+
+      if (!step1Response.ok) {
+        throw new Error(`Analysis failed with status ${step1Response.status}`)
+      }
+
+      const step1Data = await step1Response.json()
+      const suggestedUseCase = step1Data.suggested_use_case
+      const step1Analysis = step1Data.ai_analysis || ''
+
+      setAiAnalysis(step1Analysis)
+
+      let finalResults = step1Data
+
+      if (suggestedUseCase) {
+        try {
+          const step2Response = await fetch('/api/obligations/find', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...requestBody, use_case: suggestedUseCase }),
+          })
+
+          if (step2Response.ok) {
+            const step2Data = await step2Response.json()
+            finalResults = {
+              ...step2Data,
+              ai_analysis: step1Analysis,
+              suggested_use_case: suggestedUseCase,
+              warnings: [
+                ...(step2Data.warnings || []),
+                ...(step1Data.warnings || []).filter(
+                  (w: string) => !(step2Data.warnings || []).includes(w)
+                ),
+              ],
+            }
+          }
+        } catch {
+          console.warn('Step 2 (find) failed, using Step 1 results')
+        }
+      }
+
+      // Check for prohibited practices
+      const hasProhibited = PROHIBITED_PRACTICES_QUESTIONS.some(q => formData[q.key] === true)
+      if (hasProhibited) {
+        finalResults.risk_classification = 'prohibited'
+        finalResults.classification_basis = 'PROHIBITED: This AI system violates Article 5 of the EU AI Act and cannot be placed on the market or put into service in the EU.'
+        const prohibitedItems = PROHIBITED_PRACTICES_QUESTIONS.filter(q => formData[q.key] === true)
+          .map(q => `${q.question} (${q.article})`)
+        finalResults.warnings = [
+          'CRITICAL: Prohibited AI practice detected',
+          ...prohibitedItems,
+          ...(finalResults.warnings || []),
+        ]
+      }
+
+      setResults(finalResults)
+
       setTimeout(() => {
         document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' })
       }, 100)
     } catch (error) {
-      console.error('Error finding obligations:', error)
+      console.error('Error analyzing use case:', error)
+      setErrors({ api_key: 'Analysis failed. Please check your API key and try again.' })
     } finally {
       setIsLoading(false)
     }
   }
+
+  // ─── PDF Generation ──────────────────────────────────────────────────────
 
   const handleGeneratePDF = async () => {
     if (!results) return
     setIsGeneratingPDF(true)
 
     try {
-      // Fetch narrative from backend (optional)
-      let narrative = ''
-      if (hasConfig) {
+      let narrative = aiAnalysis || ''
+      if (hasConfig && !narrative) {
         try {
           const narrativeResponse = await fetch('/api/expert/generate-report', {
             method: 'POST',
@@ -401,7 +735,7 @@ export default function ExpertPage() {
               classification: {
                 risk_level: results.risk_classification,
                 classification_basis: results.classification_basis,
-                use_case: formData.use_case,
+                use_case: results.suggested_use_case || 'comprehensive_assessment',
                 institution_type: formData.institution_type,
                 role: formData.role,
               },
@@ -418,10 +752,10 @@ export default function ExpertPage() {
           })
           if (narrativeResponse.ok) {
             const narrativeData = await narrativeResponse.json()
-            narrative = narrativeData.narrative || ''
+            narrative = narrativeData.narrative || narrative
           }
         } catch {
-          // Continue without narrative
+          // Continue with existing narrative
         }
       }
 
@@ -430,7 +764,7 @@ export default function ExpertPage() {
         classification: {
           risk_level: results.risk_classification || 'context_dependent',
           classification_basis: results.classification_basis || '',
-          use_case: formData.use_case,
+          use_case: results.suggested_use_case || 'comprehensive_assessment',
           institution_type: formData.institution_type,
           role: formData.role,
         },
@@ -455,18 +789,23 @@ export default function ExpertPage() {
     }
   }
 
+  // ─── Reset ───────────────────────────────────────────────────────────────
+
   const resetForm = () => {
     setFormData({ ...INITIAL_FORM })
     setResults(null)
-    setSelectedCategory(null)
-    setUseCaseSearch('')
-    setShowAdvanced(false)
+    setAiAnalysis('')
+    setShowAnnexIII(false)
+    setShowCompliance(false)
+    setShowTechnical(false)
     setShowSectoral(false)
     setExpandedRegulation(null)
+    setErrors({})
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // Collect all obligations from results
+  // ─── Computed values ─────────────────────────────────────────────────────
+
   const allObligations: Obligation[] = useMemo(() => {
     if (!results) return []
     const all: Obligation[] = []
@@ -475,10 +814,12 @@ export default function ExpertPage() {
     if (results.dora_obligations) all.push(...results.dora_obligations)
     if (results.gpai_obligations) all.push(...results.gpai_obligations)
     if (results.sectoral_obligations) all.push(...results.sectoral_obligations)
+    if (all.length === 0 && results.obligations) {
+      all.push(...results.obligations)
+    }
     return all
   }, [results])
 
-  // Extract top suggestions from highest-priority obligations
   const topSuggestions = useMemo(() => {
     if (!allObligations.length) return []
     const sorted = [...allObligations].sort((a, b) => {
@@ -493,7 +834,6 @@ export default function ExpertPage() {
     }))
   }, [allObligations])
 
-  // Toggle for obligation regulation sections
   const regulationSections = useMemo(() => {
     if (!results) return []
     return [
@@ -505,6 +845,12 @@ export default function ExpertPage() {
     ].filter(s => s.items.length > 0)
   }, [results])
 
+  const descCharCount = formData.use_case_description.trim().length
+  const hasValidationErrors = Object.keys(errors).length > 0
+  const hasProhibitedPractice = PROHIBITED_PRACTICES_QUESTIONS.some(q => formData[q.key] === true)
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-violet-50">
       {/* Header */}
@@ -515,7 +861,7 @@ export default function ExpertPage() {
           </div>
           <div>
             <h1 className="font-bold text-gray-900 text-lg">RegolAI Expert</h1>
-            <p className="text-xs text-gray-500 hidden sm:block">Comprehensive AI use case assessment</p>
+            <p className="text-xs text-gray-500 hidden sm:block">Comprehensive EU AI Act Assessment</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -531,35 +877,211 @@ export default function ExpertPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6 pb-32">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6 pb-32">
 
-        {/* Section 1: Describe Your AI Use Case */}
+        {/* API Key Warning */}
+        {!hasConfig && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-red-500 text-xl shrink-0 mt-0.5">!</span>
+            <div>
+              <p className="text-sm font-bold text-red-800">API Key Required</p>
+              <p className="text-xs text-red-700 mt-1">
+                Configure your LLM provider (API key, model) in <strong>Settings</strong> to use the Expert assessment.
+                The AI analysis requires an active LLM connection.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Prohibited Practice Warning */}
+        {hasProhibitedPractice && (
+          <div className="bg-red-900 text-white border-2 border-red-900 rounded-xl p-5 shadow-lg">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl">⚠️</span>
+              <h3 className="text-lg font-bold">PROHIBITED AI PRACTICE DETECTED</h3>
+            </div>
+            <p className="text-sm mb-2">
+              Based on your answers, this AI system appears to violate <strong>Article 5</strong> of the EU AI Act.
+              Prohibited AI practices <strong>cannot be placed on the market or put into service</strong> in the European Union.
+            </p>
+            <p className="text-xs opacity-90">
+              Please review your answers carefully. If this assessment is incorrect, modify your responses and resubmit.
+            </p>
+          </div>
+        )}
+
+        {/* Validation Error Banner */}
+        {hasValidationErrors && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+            <p className="text-sm font-bold text-red-800">Please complete the highlighted fields for accurate classification</p>
+            <ul className="mt-2 space-y-1">
+              {errors.api_key && <li className="text-xs text-red-700">- {errors.api_key}</li>}
+              {errors.description && <li className="text-xs text-red-700">- {errors.description}</li>}
+              {errors.ai_techniques && <li className="text-xs text-red-700">- {errors.ai_techniques}</li>}
+              {errors.autonomy_level && <li className="text-xs text-red-700">- {errors.autonomy_level}</li>}
+              {errors.institution_type && <li className="text-xs text-red-700">- {errors.institution_type}</li>}
+              {errors.role && <li className="text-xs text-red-700">- {errors.role}</li>}
+              {errors.prohibited_practices && <li className="text-xs text-red-700">- {errors.prohibited_practices}</li>}
+              {errors.intended_purpose && <li className="text-xs text-red-700">- {errors.intended_purpose}</li>}
+              {errors.deployment_environment && <li className="text-xs text-red-700">- {errors.deployment_environment}</li>}
+              {errors.user_category && <li className="text-xs text-red-700">- {errors.user_category}</li>}
+              {errors.geographic_scope && <li className="text-xs text-red-700">- {errors.geographic_scope}</li>}
+            </ul>
+          </div>
+        )}
+
+        {/* Section 1: AI System Definition & Description */}
         <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
           <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
-            <h2 className="text-white font-bold text-sm">1. Describe Your AI Use Case</h2>
+            <h2 className="text-white font-bold text-sm">1. AI System Definition & Description <span className="text-purple-200 font-normal">(required - Article 3, Annex I)</span></h2>
           </div>
-          <div className="p-5">
-            <textarea
-              className="w-full border-2 border-gray-200 rounded-lg p-3 text-sm min-h-[100px] focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200 transition-colors"
-              placeholder="Describe your AI system in plain language. Example: We use AI to automatically evaluate consumer loan applications based on credit history, income, and spending patterns..."
-              value={formData.use_case_description}
-              onChange={(e) => updateForm('use_case_description', e.target.value)}
-            />
-            <p className="text-xs text-gray-400 mt-2">Optional free-text description to provide additional context for your assessment.</p>
+          <div className="p-5 space-y-4">
+            {/* Description */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Describe Your AI System</label>
+              <textarea
+                ref={descriptionRef as React.RefObject<HTMLTextAreaElement>}
+                className={`w-full border-2 rounded-lg p-3 text-sm min-h-[120px] focus:outline-none focus:ring-1 transition-colors ${
+                  errors.description
+                    ? 'border-red-300 focus:border-red-400 focus:ring-red-200'
+                    : 'border-gray-200 focus:border-purple-400 focus:ring-purple-200'
+                }`}
+                placeholder="Provide a comprehensive description of your AI system, including what it does, how it works, and what decisions or outputs it produces. Example: We use a machine learning system to evaluate consumer loan applications. The system analyzes credit history, income data, and spending patterns to produce a credit score and risk assessment that loan officers use when deciding whether to approve or deny applications..."
+                value={formData.use_case_description}
+                onChange={(e) => updateForm('use_case_description', e.target.value)}
+              />
+              <div className="flex items-center justify-between mt-2">
+                {errors.description ? (
+                  <p className="text-xs text-red-600 font-medium">{errors.description}</p>
+                ) : (
+                  <p className="text-xs text-gray-400">Detailed description required for accurate EU AI Act classification</p>
+                )}
+                <span className={`text-xs font-mono ${descCharCount < 50 ? 'text-amber-500' : 'text-green-600'}`}>
+                  {descCharCount}/50 min
+                </span>
+              </div>
+            </div>
+
+            {/* AI Techniques */}
+            <div ref={aiTechniquesRef as React.RefObject<HTMLDivElement>}>
+              <label className="text-sm font-medium text-gray-700 block mb-2">
+                Which AI techniques does your system use? <span className="text-red-500">*</span> (Select all that apply)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { value: 'machine_learning', label: 'Machine Learning (supervised, unsupervised, reinforcement)' },
+                  { value: 'logic_based', label: 'Logic and knowledge-based approaches' },
+                  { value: 'statistical', label: 'Statistical approaches' },
+                  { value: 'bayesian', label: 'Bayesian estimation' },
+                  { value: 'search_optimization', label: 'Search and optimization methods' },
+                ].map(({ value, label }) => (
+                  <label key={value} className={`flex items-start gap-2.5 p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                    formData.ai_techniques.includes(value)
+                      ? 'border-purple-400 bg-purple-50'
+                      : errors.ai_techniques
+                        ? 'border-red-200 hover:border-red-300 bg-red-50/30'
+                        : 'border-gray-200 hover:border-purple-300 bg-white'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      checked={formData.ai_techniques.includes(value)}
+                      onChange={() => toggleArrayValue('ai_techniques', value)}
+                    />
+                    <span className="text-sm text-gray-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+              {errors.ai_techniques && (
+                <p className="text-xs text-red-600 font-medium mt-2">{errors.ai_techniques}</p>
+              )}
+            </div>
+
+            {/* Outputs Generated */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-2">
+                What outputs does your system generate? (Select all that apply)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { value: 'predictions', label: 'Predictions' },
+                  { value: 'recommendations', label: 'Recommendations' },
+                  { value: 'decisions', label: 'Decisions' },
+                  { value: 'content', label: 'Content (text, images, audio, video)' },
+                ].map(({ value, label }) => (
+                  <label key={value} className={`flex items-center gap-2 p-2.5 border-2 rounded-lg cursor-pointer transition-colors ${
+                    formData.outputs_generated.includes(value)
+                      ? 'border-purple-400 bg-purple-50'
+                      : 'border-gray-200 hover:border-purple-300 bg-white'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      checked={formData.outputs_generated.includes(value)}
+                      onChange={() => toggleArrayValue('outputs_generated', value)}
+                    />
+                    <span className="text-sm text-gray-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Autonomy Level */}
+            <div ref={autonomyRef as React.RefObject<HTMLDivElement>}>
+              <label className="text-sm font-medium text-gray-700 block mb-2">
+                Level of Autonomy <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { value: 'fully_automated', label: 'Fully Automated', desc: 'No human involvement in decision-making' },
+                  { value: 'human_in_loop', label: 'Human-in-the-Loop', desc: 'Human reviews each decision before execution' },
+                  { value: 'human_on_loop', label: 'Human-on-the-Loop', desc: 'Human can intervene and override decisions' },
+                  { value: 'human_oversight', label: 'Human Oversight Only', desc: 'Human monitors but does not intervene' },
+                ].map(({ value, label, desc }) => (
+                  <label key={value} className={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                    formData.autonomy_level === value
+                      ? 'border-purple-400 bg-purple-50'
+                      : errors.autonomy_level
+                        ? 'border-red-200 hover:border-red-300 bg-red-50/30'
+                        : 'border-gray-200 hover:border-purple-300 bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="autonomy_level"
+                      className="w-4 h-4 mt-0.5 text-purple-600 focus:ring-purple-500"
+                      checked={formData.autonomy_level === value}
+                      onChange={() => updateForm('autonomy_level', value)}
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-800">{label}</span>
+                      <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {errors.autonomy_level && (
+                <p className="text-xs text-red-600 font-medium mt-2">{errors.autonomy_level}</p>
+              )}
+            </div>
           </div>
         </section>
 
-        {/* Section 2: Organization */}
+        {/* Section 2: Your Organization */}
         <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
           <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
-            <h2 className="text-white font-bold text-sm">2. Organization</h2>
+            <h2 className="text-white font-bold text-sm">2. Your Organization <span className="text-purple-200 font-normal">(required)</span></h2>
           </div>
           <div className="p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1.5">Institution Type</label>
+                <label className="text-sm font-medium text-gray-700 block mb-1.5">Institution Type <span className="text-red-500">*</span></label>
                 <select
-                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-purple-400 focus:outline-none bg-white"
+                  ref={institutionRef as React.RefObject<HTMLSelectElement>}
+                  className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none bg-white ${
+                    errors.institution_type
+                      ? 'border-red-300 focus:border-red-400'
+                      : 'border-gray-200 focus:border-purple-400'
+                  }`}
                   value={formData.institution_type}
                   onChange={(e) => updateForm('institution_type', e.target.value)}
                 >
@@ -568,11 +1090,19 @@ export default function ExpertPage() {
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
+                {errors.institution_type && (
+                  <p className="text-xs text-red-600 mt-1">{errors.institution_type}</p>
+                )}
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1.5">Your Role with AI</label>
+                <label className="text-sm font-medium text-gray-700 block mb-1.5">Your Role with AI <span className="text-red-500">*</span></label>
                 <select
-                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-purple-400 focus:outline-none bg-white"
+                  ref={roleRef as React.RefObject<HTMLSelectElement>}
+                  className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none bg-white ${
+                    errors.role
+                      ? 'border-red-300 focus:border-red-400'
+                      : 'border-gray-200 focus:border-purple-400'
+                  }`}
                   value={formData.role}
                   onChange={(e) => updateForm('role', e.target.value)}
                 >
@@ -581,6 +1111,9 @@ export default function ExpertPage() {
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
+                {errors.role && (
+                  <p className="text-xs text-red-600 mt-1">{errors.role}</p>
+                )}
               </div>
             </div>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer group">
@@ -590,190 +1123,548 @@ export default function ExpertPage() {
                 checked={formData.third_party_vendor}
                 onChange={(e) => updateForm('third_party_vendor', e.target.checked)}
               />
-              <span className="text-gray-700 group-hover:text-gray-900">I'm using AI from a third-party vendor (buying/licensing AI)</span>
+              <span className="text-gray-700 group-hover:text-gray-900">I&apos;m using AI from a third-party vendor (buying/licensing AI)</span>
             </label>
           </div>
         </section>
 
-        {/* Section 3: Use Case */}
-        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
-            <h2 className="text-white font-bold text-sm">3. Use Case</h2>
+        {/* Section 3: Prohibited Practices Check (Article 5) */}
+        <section className="bg-white rounded-xl border-2 border-red-100 shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-r from-red-600 to-red-700 px-5 py-3">
+            <h2 className="text-white font-bold text-sm">
+              3. Prohibited Practices Check <span className="text-red-200 font-normal">(Article 5 - all required)</span>
+            </h2>
           </div>
-          <div className="p-5 space-y-4">
-            {/* Category Filter */}
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                className={`px-3 py-1 rounded-full text-xs border transition-colors ${!selectedCategory ? 'bg-purple-600 text-white border-purple-600' : 'bg-white hover:bg-purple-50 border-gray-200'}`}
-                onClick={() => setSelectedCategory(null)}
-              >
-                All ({USE_CASES.length})
-              </button>
-              {USE_CASE_CATEGORIES.map((cat) => {
-                const count = USE_CASES.filter(u => u.category === cat.id).length
-                return (
-                  <button
-                    key={cat.id}
-                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${selectedCategory === cat.id ? 'bg-purple-600 text-white border-purple-600' : 'bg-white hover:bg-purple-50 border-gray-200'}`}
-                    onClick={() => setSelectedCategory(cat.id)}
-                  >
-                    {cat.label} ({count})
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Search */}
-            <input
-              type="text"
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-purple-400 focus:outline-none"
-              placeholder="Search use cases..."
-              value={useCaseSearch}
-              onChange={(e) => setUseCaseSearch(e.target.value)}
-            />
-
-            {/* Use Case Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto pr-1">
-              {filteredUseCases.map((uc) => (
-                <button
-                  key={uc.value}
-                  onClick={() => handleUseCaseSelect(uc.value)}
-                  className={`text-left p-3 rounded-lg border-2 transition-all text-sm ${
-                    formData.use_case === uc.value
-                      ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200'
-                      : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <span className="font-medium text-gray-800">{uc.label}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 border ${getRiskBadgeClasses(uc.risk)}`}>
-                      {getRiskLabel(uc.risk)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">{uc.description}</p>
-                  {uc.annex_ref && uc.annex_ref !== 'Not listed' && uc.annex_ref !== 'Not covered' && (
-                    <p className="text-xs text-purple-600 mt-1">{uc.annex_ref}</p>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* Selected use case indicator */}
-            {selectedUseCase && (
-              <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
-                <span className="text-xs font-medium text-purple-800">Selected:</span>
-                <span className="text-sm text-purple-900 font-semibold">{selectedUseCase.label}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded border ${getRiskBadgeClasses(selectedUseCase.risk)}`}>
-                  {getRiskLabel(selectedUseCase.risk)}
-                </span>
+          <div ref={prohibitedRef as React.RefObject<HTMLDivElement>} className="p-5 space-y-1">
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+              <strong>CRITICAL:</strong> If ANY of these apply, your AI system is <strong>prohibited</strong> under EU AI Act Article 5 and cannot be placed on the EU market.
+            </p>
+            {errors.prohibited_practices && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+                <p className="text-xs text-red-700 font-medium">{errors.prohibited_practices}</p>
               </div>
             )}
-          </div>
-        </section>
-
-        {/* Section 4: Impact Assessment */}
-        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
-            <h2 className="text-white font-bold text-sm">4. Impact Assessment</h2>
-          </div>
-          <div className="p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { key: 'involves_natural_persons' as const, label: 'Involves Natural Persons', tip: 'The AI processes data about or affects individual people' },
-                { key: 'fully_automated' as const, label: 'Fully Automated Decisions', tip: 'No human in the loop - triggers GDPR Art. 22' },
-                { key: 'denies_service_access' as const, label: 'Can Deny Service Access', tip: 'May reject applications or block access - Annex III 5(b)' },
-                { key: 'affects_legal_rights' as const, label: 'Affects Legal Rights', tip: 'Produces legal or similarly significant effects on individuals' },
-                { key: 'uses_special_category_data' as const, label: 'Special Category Data', tip: 'Processes health, biometric, race, religion data (GDPR Art. 9)' },
-                { key: 'vulnerable_groups' as const, label: 'Vulnerable Groups', tip: 'Affects children, elderly, disabled, or financially vulnerable persons' },
-                { key: 'is_high_impact' as const, label: 'High Impact', tip: 'Significant financial consequences (>EUR1000 or >10% income) or affects fundamental rights' },
-                { key: 'involves_profiling' as const, label: 'Involves Profiling', tip: 'Automated evaluation of personal aspects (GDPR Art. 4(4))' },
-              ].map(({ key, label, tip }) => (
-                <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50/50 cursor-pointer transition-colors group">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    checked={formData[key] as boolean}
-                    onChange={(e) => updateForm(key, e.target.checked)}
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-800 group-hover:text-purple-800">{label}</span>
-                    <p className="text-xs text-gray-500 mt-0.5">{tip}</p>
+            {PROHIBITED_PRACTICES_QUESTIONS.map(({ key, question, article }) => {
+              const isUnanswered = formData[key] === null
+              const hasError = !!errors.prohibited_practices && isUnanswered
+              const answeredYes = formData[key] === true
+              return (
+                <div
+                  key={key}
+                  className={`flex items-start justify-between gap-4 p-3.5 rounded-lg border-2 transition-colors ${
+                    answeredYes
+                      ? 'border-red-300 bg-red-50'
+                      : hasError
+                        ? 'border-red-200 bg-red-50/30'
+                        : isUnanswered
+                          ? 'border-gray-100 bg-gray-50/30'
+                          : 'border-green-100 bg-green-50/20'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">{question}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{article}</p>
                   </div>
-                </label>
-              ))}
-            </div>
+                  <div className="shrink-0">
+                    <TriStateToggle
+                      value={formData[key]}
+                      onChange={(v) => updateForm(key, v)}
+                      error={hasError}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </section>
 
-        {/* Section 5: Technical & Regulatory (Collapsed) */}
-        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
+        {/* Section 4: High-Risk Assessment (Annex III) - Collapsible with all categories */}
+        <section className="bg-white rounded-xl border-2 border-orange-100 shadow-sm overflow-hidden">
           <button
-            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3 flex items-center justify-between"
-            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="w-full bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 flex items-center justify-between"
+            onClick={() => setShowAnnexIII(!showAnnexIII)}
           >
-            <h2 className="text-white font-bold text-sm">5. Technical & Regulatory (Advanced)</h2>
-            <span className="text-white text-sm">{showAdvanced ? '▲' : '▼'}</span>
+            <h2 className="text-white font-bold text-sm">4. High-Risk Classification Assessment (Annex III)</h2>
+            <span className="text-white text-sm">{showAnnexIII ? '▲' : '▼'}</span>
           </button>
-          {showAdvanced && (
-            <div className="p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { key: 'uses_gpai_model' as const, label: 'Uses GPAI Model', tip: 'Built on a General Purpose AI model (e.g. GPT-4, Claude)' },
-                  { key: 'gpai_with_systemic_risk' as const, label: 'GPAI with Systemic Risk', tip: 'GPAI model with >10^25 FLOPs (GPT-4, Claude 3.5, etc.)' },
-                  { key: 'safety_component' as const, label: 'Safety Component', tip: 'AI is a safety component of a product (Art. 6(1))' },
-                  { key: 'cross_border_processing' as const, label: 'Cross-Border Processing', tip: 'Data processed across EU member state borders' },
-                  { key: 'critical_ict_service' as const, label: 'Critical ICT Service (DORA)', tip: 'Supports critical banking/financial infrastructure' },
-                  { key: 'life_health_insurance' as const, label: 'Life/Health Insurance', tip: 'Specifically for life or health insurance (Annex III 5(c))' },
-                ].map(({ key, label, tip }) => (
-                  <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50/50 cursor-pointer transition-colors group">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      checked={formData[key] as boolean}
-                      onChange={(e) => updateForm(key, e.target.checked)}
-                    />
-                    <div>
-                      <span className="text-sm font-medium text-gray-800 group-hover:text-purple-800">{label}</span>
-                      <p className="text-xs text-gray-500 mt-0.5">{tip}</p>
-                    </div>
-                  </label>
-                ))}
+          {showAnnexIII && (
+            <div className="p-5 space-y-5">
+              <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                Select all categories that apply to your AI system. Systems falling under these categories are classified as <strong>HIGH-RISK</strong> under Annex III of the EU AI Act.
+              </p>
+
+              {/* Annex III.1: Biometric */}
+              <div className="border-l-4 border-blue-500 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.1: Biometric Identification & Categorization</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'biometric_identification' as const, label: 'Biometric identification of natural persons' },
+                    { key: 'biometric_categorization' as const, label: 'Biometric categorization of natural persons' },
+                    { key: 'remote_biometric_identification' as const, label: 'Remote biometric identification of natural persons' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-blue-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.2: Critical Infrastructure */}
+              <div className="border-l-4 border-red-500 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.2: Critical Infrastructure</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'critical_infrastructure_safety' as const, label: 'Safety component of critical infrastructure (road traffic, water, gas, heating, electricity)' },
+                    { key: 'manages_utilities' as const, label: 'Manages supply of water, gas, heating, or electricity' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-red-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.3: Education */}
+              <div className="border-l-4 border-green-500 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.3: Education and Vocational Training</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'educational_access' as const, label: 'Determines access or admission to educational institutions' },
+                    { key: 'educational_assessment' as const, label: 'Assesses students or evaluates learning outcomes' },
+                    { key: 'educational_monitoring' as const, label: 'Monitors and detects prohibited behavior of students during tests' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-green-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.4: Employment */}
+              <div className="border-l-4 border-purple-500 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.4: Employment, HR, and Access to Self-Employment</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'recruitment_selection' as const, label: 'Recruitment or selection of persons (CV screening, interviews, assessments)' },
+                    { key: 'task_allocation_employment' as const, label: 'Task allocation and work organization decisions' },
+                    { key: 'performance_monitoring' as const, label: 'Monitoring and evaluation of employee performance' },
+                    { key: 'promotion_termination' as const, label: 'Promotion or termination decisions' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-purple-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.5: Essential Services */}
+              <div className="border-l-4 border-indigo-500 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.5: Access to Essential Private/Public Services and Benefits</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'emergency_services' as const, label: 'Emergency first response services dispatch and prioritization' },
+                    { key: 'public_assistance_benefits' as const, label: 'Evaluates eligibility for public assistance benefits and services' },
+                    { key: 'creditworthiness_natural_persons' as const, label: 'Evaluates creditworthiness of natural persons (consumer credit)' },
+                    { key: 'insurance_life_health' as const, label: 'Life or health insurance pricing and underwriting' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-indigo-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.6: Law Enforcement */}
+              <div className="border-l-4 border-amber-600 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.6: Law Enforcement</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'law_enforcement_risk_assessment' as const, label: 'Risk assessment (risk of offending/reoffending, risk for victims, recidivism)' },
+                    { key: 'law_enforcement_polygraph' as const, label: 'Polygraph and similar tools for detecting emotional state' },
+                    { key: 'law_enforcement_emotion_recognition' as const, label: 'Emotion recognition of natural persons' },
+                    { key: 'law_enforcement_deepfake_detection' as const, label: 'Detection of deep fakes' },
+                    { key: 'law_enforcement_evidence_evaluation' as const, label: 'Evaluation of reliability of evidence in criminal proceedings' },
+                    { key: 'law_enforcement_profiling' as const, label: 'Profiling of persons in criminal investigations' },
+                    { key: 'law_enforcement_crime_analytics' as const, label: 'Crime analytics for prediction, detection, or prevention' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-amber-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-amber-700 focus:ring-amber-600"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.7: Migration/Asylum */}
+              <div className="border-l-4 border-cyan-600 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.7: Migration, Asylum, and Border Control</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'migration_polygraph' as const, label: 'Polygraph and similar tools' },
+                    { key: 'migration_risk_assessment' as const, label: 'Assessment of security, irregular immigration, or health risk' },
+                    { key: 'migration_application_examination' as const, label: 'Examination of asylum/visa/residence permit applications' },
+                    { key: 'migration_border_detection' as const, label: 'Detection of persons crossing borders illegally' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-cyan-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-cyan-700 focus:ring-cyan-600"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Annex III.8: Justice */}
+              <div className="border-l-4 border-pink-600 pl-4">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Annex III.8: Administration of Justice and Democratic Processes</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'justice_research_interpretation' as const, label: 'Assists judicial authority in researching and interpreting facts and law' },
+                    { key: 'justice_law_application' as const, label: 'Applies the law to a concrete set of facts' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 p-2.5 border rounded-lg hover:bg-pink-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-pink-700 focus:ring-pink-600"
+                        checked={formData[key]}
+                        onChange={(e) => updateForm(key, e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           )}
         </section>
 
-        {/* Section 6: Sectoral (Collapsed) */}
+        {/* Section 5: Transparency Obligations (Article 52) */}
+        <section className="bg-white rounded-xl border-2 border-yellow-100 shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 px-5 py-3">
+            <h2 className="text-white font-bold text-sm">5. Transparency Obligations (Article 52)</h2>
+          </div>
+          <div className="p-5 space-y-2">
+            <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+              Select if your AI system performs any of these functions. These require <strong>transparency disclosures</strong> under Article 52.
+            </p>
+            {[
+              { key: 'natural_person_interaction' as const, label: 'Interacts with natural persons (chatbots, voice assistants)', article: 'Art. 52(1)' },
+              { key: 'emotion_recognition_biometric' as const, label: 'Detects emotions or determines associations based on biometric data', article: 'Art. 52(2)' },
+              { key: 'deepfake_generation' as const, label: 'Generates or manipulates image/audio/video content (deepfakes)', article: 'Art. 52(3)' },
+              { key: 'synthetic_content_generation' as const, label: 'Generates or manipulates synthetic text content', article: 'Art. 52(3)' },
+            ].map(({ key, label, article }) => (
+              <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-yellow-50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 mt-0.5 rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                  checked={formData[key]}
+                  onChange={(e) => updateForm(key, e.target.checked)}
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-800">{label}</span>
+                  <p className="text-xs text-gray-500 mt-0.5">{article}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        {/* Section 6: Deployment Context & Intended Purpose */}
+        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
+            <h2 className="text-white font-bold text-sm">6. Deployment Context & Intended Purpose <span className="text-purple-200 font-normal">(required)</span></h2>
+          </div>
+          <div className="p-5 space-y-4">
+            {/* Intended Purpose */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Intended Purpose (as defined in technical documentation) <span className="text-red-500">*</span>
+              </label>
+              <input
+                ref={purposeRef as React.RefObject<HTMLInputElement>}
+                type="text"
+                className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none ${
+                  errors.intended_purpose
+                    ? 'border-red-300 focus:border-red-400'
+                    : 'border-gray-200 focus:border-purple-400'
+                }`}
+                placeholder="e.g., Automated creditworthiness assessment for consumer loans"
+                value={formData.intended_purpose}
+                onChange={(e) => updateForm('intended_purpose', e.target.value)}
+              />
+              {errors.intended_purpose && (
+                <p className="text-xs text-red-600 mt-1">{errors.intended_purpose}</p>
+              )}
+            </div>
+
+            {/* Deployment Environment */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Primary Deployment Environment <span className="text-red-500">*</span>
+              </label>
+              <select
+                ref={deploymentRef as React.RefObject<HTMLSelectElement>}
+                className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none bg-white ${
+                  errors.deployment_environment
+                    ? 'border-red-300 focus:border-red-400'
+                    : 'border-gray-200 focus:border-purple-400'
+                }`}
+                value={formData.deployment_environment}
+                onChange={(e) => updateForm('deployment_environment', e.target.value)}
+              >
+                <option value="">Select deployment environment...</option>
+                <option value="public_space">Public Space</option>
+                <option value="workplace">Workplace</option>
+                <option value="educational_institution">Educational Institution</option>
+                <option value="healthcare_facility">Healthcare Facility</option>
+                <option value="financial_institution">Financial Institution</option>
+                <option value="online_platform">Online Platform</option>
+                <option value="law_enforcement">Law Enforcement</option>
+                <option value="border_control">Border Control / Migration</option>
+                <option value="judicial_system">Judicial System</option>
+                <option value="critical_infrastructure">Critical Infrastructure</option>
+                <option value="other">Other</option>
+              </select>
+              {errors.deployment_environment && (
+                <p className="text-xs text-red-600 mt-1">{errors.deployment_environment}</p>
+              )}
+            </div>
+
+            {/* User Category */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Primary User Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                ref={userCategoryRef as React.RefObject<HTMLSelectElement>}
+                className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none bg-white ${
+                  errors.user_category
+                    ? 'border-red-300 focus:border-red-400'
+                    : 'border-gray-200 focus:border-purple-400'
+                }`}
+                value={formData.primary_user_category}
+                onChange={(e) => updateForm('primary_user_category', e.target.value)}
+              >
+                <option value="">Select primary user...</option>
+                <option value="public_authorities">Public Authorities</option>
+                <option value="private_companies">Private Companies (B2B)</option>
+                <option value="consumers">Consumers / Individuals (B2C)</option>
+                <option value="professionals">Professionals (doctors, lawyers, etc.)</option>
+              </select>
+              {errors.user_category && (
+                <p className="text-xs text-red-600 mt-1">{errors.user_category}</p>
+              )}
+            </div>
+
+            {/* Geographic Scope */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Geographic Scope <span className="text-red-500">*</span>
+              </label>
+              <select
+                ref={geographicRef as React.RefObject<HTMLSelectElement>}
+                className={`w-full border-2 rounded-lg px-3 py-2.5 text-sm focus:outline-none bg-white ${
+                  errors.geographic_scope
+                    ? 'border-red-300 focus:border-red-400'
+                    : 'border-gray-200 focus:border-purple-400'
+                }`}
+                value={formData.geographic_scope}
+                onChange={(e) => updateForm('geographic_scope', e.target.value)}
+              >
+                <option value="">Select geographic scope...</option>
+                <option value="single_eu_member">Single EU Member State</option>
+                <option value="multiple_eu_members">Multiple EU Member States</option>
+                <option value="eu_and_outside">EU and Outside EU</option>
+                <option value="outside_eu_to_eu">Outside EU but placing on EU market</option>
+              </select>
+              {errors.geographic_scope && (
+                <p className="text-xs text-red-600 mt-1">{errors.geographic_scope}</p>
+              )}
+            </div>
+
+            {/* Vulnerable Groups */}
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer group">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                checked={formData.vulnerable_groups}
+                onChange={(e) => updateForm('vulnerable_groups', e.target.checked)}
+              />
+              <span className="text-gray-700 group-hover:text-gray-900">
+                Affects vulnerable groups (children, elderly, persons with disabilities, financially vulnerable)
+              </span>
+            </label>
+          </div>
+        </section>
+
+        {/* Section 7: Data Governance & Quality */}
+        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3">
+            <h2 className="text-white font-bold text-sm">7. Data Governance & Quality</h2>
+          </div>
+          <div className="p-5 space-y-2">
+            {[
+              { key: 'uses_special_category_data' as const, label: 'Uses special category data', desc: 'Health, biometric, race/ethnicity, religion, political opinions (GDPR Art. 9)' },
+              { key: 'involves_profiling' as const, label: 'Involves profiling', desc: 'Automated evaluation of personal aspects (GDPR Art. 4(4))' },
+              { key: 'training_data_documented' as const, label: 'Training data sources documented', desc: 'Data provenance, sources, and lineage are documented' },
+              { key: 'data_quality_measures' as const, label: 'Data quality measures implemented', desc: 'Data governance, validation, bias detection, and quality controls' },
+            ].map(({ key, label, desc }) => (
+              <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  checked={formData[key]}
+                  onChange={(e) => updateForm(key, e.target.checked)}
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-800">{label}</span>
+                  <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        {/* Section 8: Risk Management & Compliance - Collapsible */}
+        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
+          <button
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3 flex items-center justify-between"
+            onClick={() => setShowCompliance(!showCompliance)}
+          >
+            <h2 className="text-white font-bold text-sm">8. Risk Management & Compliance</h2>
+            <span className="text-white text-sm">{showCompliance ? '▲' : '▼'}</span>
+          </button>
+          {showCompliance && (
+            <div className="p-5 space-y-2">
+              <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-3">
+                These measures are <strong>mandatory for high-risk AI systems</strong> (Articles 9-15).
+              </p>
+              {[
+                { key: 'risk_management_system' as const, label: 'Risk management system in place', desc: 'Continuous iterative risk management process (Article 9)' },
+                { key: 'human_oversight_measures' as const, label: 'Human oversight measures implemented', desc: 'Human-in-the-loop, human-on-the-loop, or human oversight (Article 14)' },
+                { key: 'conformity_assessment_conducted' as const, label: 'Conformity assessment conducted', desc: 'Third-party conformity assessment or internal assessment (Article 43)' },
+                { key: 'post_market_monitoring' as const, label: 'Post-market monitoring system', desc: 'Continuous monitoring of AI system performance in real-world use (Article 72)' },
+              ].map(({ key, label, desc }) => (
+                <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-indigo-50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={formData[key]}
+                    onChange={(e) => updateForm(key, e.target.checked)}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{label}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Section 9: Technical & GPAI - Collapsible */}
+        <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
+          <button
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3 flex items-center justify-between"
+            onClick={() => setShowTechnical(!showTechnical)}
+          >
+            <h2 className="text-white font-bold text-sm">9. Technical & General-Purpose AI (GPAI)</h2>
+            <span className="text-white text-sm">{showTechnical ? '▲' : '▼'}</span>
+          </button>
+          {showTechnical && (
+            <div className="p-5 space-y-2">
+              {[
+                { key: 'uses_gpai_model' as const, label: 'Uses General-Purpose AI model', desc: 'Built on foundation models like GPT-4, Claude, Gemini (Articles 51-56)' },
+                { key: 'gpai_with_systemic_risk' as const, label: 'GPAI with systemic risk', desc: 'Models with >10^25 FLOPs or equivalent capabilities (Article 51)' },
+                { key: 'safety_component' as const, label: 'Safety component of a product', desc: 'AI is a safety component regulated under EU harmonized legislation (Article 6(1))' },
+                { key: 'cross_border_processing' as const, label: 'Cross-border data processing', desc: 'Processes data across EU member state borders' },
+                { key: 'critical_ict_service' as const, label: 'Critical ICT service (DORA)', desc: 'Supports critical banking/financial infrastructure under DORA' },
+              ].map(({ key, label, desc }) => (
+                <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    checked={formData[key]}
+                    onChange={(e) => updateForm(key, e.target.checked)}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{label}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Section 10: Sectoral Regulations - Collapsible */}
         <section className="bg-white rounded-xl border-2 border-purple-100 shadow-sm overflow-hidden">
           <button
             className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-3 flex items-center justify-between"
             onClick={() => setShowSectoral(!showSectoral)}
           >
-            <h2 className="text-white font-bold text-sm">6. Sectoral Regulations</h2>
+            <h2 className="text-white font-bold text-sm">10. Sectoral Regulations (MiFID II, PSD2, AMLD)</h2>
             <span className="text-white text-sm">{showSectoral ? '▲' : '▼'}</span>
           </button>
           {showSectoral && (
-            <div className="p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { key: 'provides_investment_advice' as const, label: 'Provides Investment Advice', tip: 'Subject to MiFID II suitability requirements' },
-                  { key: 'processes_payments' as const, label: 'Processes Payments', tip: 'Subject to PSD2 requirements' },
-                  { key: 'performs_aml_obligations' as const, label: 'Performs AML Obligations', tip: 'Subject to Anti-Money Laundering Directive' },
-                ].map(({ key, label, tip }) => (
-                  <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50/50 cursor-pointer transition-colors group">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      checked={formData[key] as boolean}
-                      onChange={(e) => updateForm(key, e.target.checked)}
-                    />
-                    <div>
-                      <span className="text-sm font-medium text-gray-800 group-hover:text-purple-800">{label}</span>
-                      <p className="text-xs text-gray-500 mt-0.5">{tip}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
+            <div className="p-5 space-y-2">
+              {[
+                { key: 'provides_investment_advice' as const, label: 'Provides investment advice', desc: 'Subject to MiFID II suitability and appropriateness requirements' },
+                { key: 'processes_payments' as const, label: 'Processes payments', desc: 'Subject to PSD2 strong customer authentication and security requirements' },
+                { key: 'performs_aml_obligations' as const, label: 'Performs AML obligations', desc: 'Subject to Anti-Money Laundering Directive (AMLD) requirements' },
+              ].map(({ key, label, desc }) => (
+                <label key={key} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-cyan-50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                    checked={formData[key]}
+                    onChange={(e) => updateForm(key, e.target.checked)}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{label}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
             </div>
           )}
         </section>
@@ -781,23 +1672,23 @@ export default function ExpertPage() {
         {/* Submit Button */}
         <button
           onClick={handleSubmit}
-          disabled={isLoading || (!formData.use_case && !formData.use_case_description)}
+          disabled={isLoading}
           className="w-full py-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg"
         >
           {isLoading ? (
             <span className="flex items-center justify-center gap-3">
               <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span>
-              Analyzing...
+              Analyzing with AI...
             </span>
           ) : (
-            'Get Classification & Obligations'
+            'Get Comprehensive Classification & Obligations'
           )}
         </button>
 
         {/* ─── Results Section ──────────────────────────────────────────── */}
         {results && (
           <div id="results-section" className="space-y-6">
-            {/* Risk Classification Badge (large) */}
+            {/* Risk Classification Badge */}
             <div className={`rounded-xl border-2 p-6 text-center ${getRiskBadgeClasses(results.risk_classification || 'context_dependent')}`}>
               <p className="text-xs uppercase tracking-wider font-semibold mb-2 opacity-70">Risk Classification</p>
               <p className="text-3xl sm:text-4xl font-bold">
@@ -806,7 +1697,20 @@ export default function ExpertPage() {
               {results.classification_basis && (
                 <p className="mt-2 text-sm opacity-80">{results.classification_basis}</p>
               )}
+              {results.suggested_use_case && (
+                <p className="mt-1 text-xs opacity-60">Matched use case: {results.suggested_use_case.replace(/_/g, ' ')}</p>
+              )}
             </div>
+
+            {/* AI Analysis Narrative */}
+            {aiAnalysis && (
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-xl p-5">
+                <h3 className="text-sm font-bold text-indigo-800 mb-2">AI Analysis</h3>
+                <div className="text-sm text-indigo-900 whitespace-pre-line leading-relaxed">
+                  {aiAnalysis}
+                </div>
+              </div>
+            )}
 
             {/* Validation info */}
             {results.validation && (
@@ -897,27 +1801,29 @@ export default function ExpertPage() {
             )}
 
             {/* Expanded Obligations by Regulation */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-bold text-gray-800">Detailed Obligations</h3>
-              {regulationSections.map(section => (
-                <div key={section.key} className="rounded-xl border-2 border-gray-200 overflow-hidden">
-                  <button
-                    className={`w-full px-5 py-3 flex items-center justify-between ${section.headerBg} text-white font-bold text-sm`}
-                    onClick={() => setExpandedRegulation(expandedRegulation === section.key ? null : section.key)}
-                  >
-                    <span>{section.label} ({section.items.length})</span>
-                    <span>{expandedRegulation === section.key ? '▲' : '▼'}</span>
-                  </button>
-                  {expandedRegulation === section.key && (
-                    <div className="p-3 space-y-2 max-h-[600px] overflow-y-auto bg-gray-50">
-                      {section.items.map((ob: Obligation) => (
-                        <ObligationCard key={ob.id} obligation={ob} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            {regulationSections.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-lg font-bold text-gray-800">Detailed Obligations</h3>
+                {regulationSections.map(section => (
+                  <div key={section.key} className="rounded-xl border-2 border-gray-200 overflow-hidden">
+                    <button
+                      className={`w-full px-5 py-3 flex items-center justify-between ${section.headerBg} text-white font-bold text-sm`}
+                      onClick={() => setExpandedRegulation(expandedRegulation === section.key ? null : section.key)}
+                    >
+                      <span>{section.label} ({section.items.length})</span>
+                      <span>{expandedRegulation === section.key ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedRegulation === section.key && (
+                      <div className="p-3 space-y-2 max-h-[600px] overflow-y-auto bg-gray-50">
+                        {section.items.map((ob: Obligation) => (
+                          <ObligationCard key={ob.id} obligation={ob} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Compliance Timeline */}
             {results.timeline?.length > 0 && (
@@ -951,7 +1857,7 @@ export default function ExpertPage() {
 
         {/* Disclaimer */}
         <p className="text-xs text-gray-400 text-center">
-          Responses are generated for guidance only. Always consult legal counsel for compliance decisions.
+          This assessment is provided for guidance only and does not constitute legal advice. Always consult qualified legal counsel for compliance decisions. The EU AI Act is complex and subject to interpretation.
         </p>
       </div>
 
