@@ -23,7 +23,7 @@ const NAV_ITEMS = [
   {
     href: '/expert',
     label: 'RegolAI Expert',
-    description: 'AI classification interview'
+    description: 'AI use case assessment'
   },
   {
     href: '/settings',

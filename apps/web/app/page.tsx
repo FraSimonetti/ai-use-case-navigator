@@ -108,8 +108,8 @@ export default function HomePage() {
             </CardHeader>
             <CardContent className="p-5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
               <p className="text-gray-700 leading-relaxed">
-                Describe your AI use case in plain language and our expert AI will interview you,
-                classify your system, and generate a comprehensive compliance report.
+                Complete a comprehensive assessment form to classify your AI system
+                and receive full regulatory obligations with an actionable compliance report.
               </p>
 
               <div className="space-y-3">
@@ -117,7 +117,7 @@ export default function HomePage() {
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-start gap-2">
                     <span className="text-purple-600 font-bold mt-0.5">•</span>
-                    <span>Guided interview to collect all relevant details</span>
+                    <span>Comprehensive assessment form with all relevant factors</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-purple-600 font-bold mt-0.5">•</span>
@@ -135,7 +135,7 @@ export default function HomePage() {
               </div>
 
               <Button asChild className="w-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg">
-                <Link href="/expert">Start Expert Interview</Link>
+                <Link href="/expert">Start Expert Assessment</Link>
               </Button>
             </CardContent>
           </Card>
