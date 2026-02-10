@@ -39,8 +39,10 @@ const AI_ROLES = [
 interface FormData {
   // Section 1: AI System Definition
   use_case_description: string
-  ai_techniques: string[] // ML, logic_based, statistical, bayesian, search_optimization
-  outputs_generated: string[] // predictions, recommendations, decisions, content
+  ai_techniques: string[]
+  ai_techniques_other: string // NEW: Custom technique input
+  outputs_generated: string[]
+  outputs_generated_other: string // NEW: Custom output input
   autonomy_level: string // fully_automated, human_in_loop, human_on_loop, human_oversight
 
   // Section 2: Organization
@@ -207,7 +209,9 @@ function getRiskLabel(risk: string): string {
 const INITIAL_FORM: FormData = {
   use_case_description: '',
   ai_techniques: [],
+  ai_techniques_other: '',
   outputs_generated: [],
+  outputs_generated_other: '',
   autonomy_level: '',
   institution_type: '',
   role: '',
@@ -360,6 +364,69 @@ function TriStateToggle({
   )
 }
 
+// ─── Info Modal Component ────────────────────────────────────────────────────
+
+function InfoModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-white font-bold text-lg">About RegolAI Expert Assessment</h2>
+          <button onClick={onClose} className="text-white hover:text-gray-200 text-2xl font-bold">&times;</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <section>
+            <h3 className="text-lg font-bold text-purple-800 mb-2">🎯 What is this page?</h3>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              The <strong>RegolAI Expert Assessment</strong> is a comprehensive AI system classification tool that helps you determine the regulatory obligations your AI system must comply with under the <strong>EU AI Act</strong>, GDPR, DORA, and sectoral financial regulations.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="text-lg font-bold text-purple-800 mb-2">💡 Why use this assessment?</h3>
+            <ul className="text-sm text-gray-700 space-y-2 ml-5 list-disc">
+              <li><strong>Comprehensive coverage:</strong> Covers all EU AI Act articles and all 8 Annex III high-risk categories</li>
+              <li><strong>Multi-regulation analysis:</strong> Assesses compliance with AI Act, GDPR, DORA, MiFID II, PSD2, and AMLD</li>
+              <li><strong>AI-powered insights:</strong> Uses advanced LLM analysis to identify your use case and provide tailored guidance</li>
+              <li><strong>Actionable obligations:</strong> Provides specific compliance obligations, deadlines, and action items</li>
+            </ul>
+          </section>
+
+          <section>
+            <h3 className="text-lg font-bold text-purple-800 mb-2">⚙️ How it works</h3>
+            <ol className="text-sm text-gray-700 space-y-2 ml-5 list-decimal">
+              <li><strong>Describe your AI:</strong> Answer questions about your AI system, techniques, deployment, and impact</li>
+              <li><strong>AI analysis:</strong> Our LLM analyzes your responses to identify regulatory classification</li>
+              <li><strong>Rule-based matching:</strong> EU AI Act rules determine risk classification and obligations</li>
+              <li><strong>Comprehensive report:</strong> Receive detailed assessment with legal basis and compliance steps</li>
+            </ol>
+          </section>
+
+          <section className="border-t-2 border-red-200 pt-4">
+            <h3 className="text-lg font-bold text-red-800 mb-2">⚠️ Important Legal Disclaimer</h3>
+            <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 text-xs text-red-900 space-y-2">
+              <p><strong>NOT LEGAL ADVICE:</strong> This assessment is provided for informational purposes only. It does <strong>not constitute legal advice</strong>.</p>
+              <p><strong>NO GUARANTEE:</strong> The EU AI Act is complex and subject to interpretation. We make no warranties about completeness or accuracy.</p>
+              <p><strong>CONSULT LEGAL COUNSEL:</strong> Always consult qualified legal professionals before making compliance decisions.</p>
+              <p><strong>YOUR RESPONSIBILITY:</strong> You are solely responsible for ensuring your AI system complies with all applicable laws.</p>
+              <p><strong>AI-GENERATED CONTENT:</strong> AI analysis may produce inaccurate information. Review all content with human experts.</p>
+            </div>
+          </section>
+        </div>
+
+        <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t">
+          <button onClick={onClose} className="w-full py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors">
+            I Understand
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ExpertPage() {
@@ -368,6 +435,7 @@ export default function ExpertPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [hasConfig, setHasConfig] = useState(false)
+  const [showInfoModal, setShowInfoModal] = useState(false)
   const [showAnnexIII, setShowAnnexIII] = useState(false)
   const [showCompliance, setShowCompliance] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
@@ -449,10 +517,6 @@ export default function ExpertPage() {
     const newErrors: ValidationErrors = {}
     let firstErrorRef: React.RefObject<HTMLElement | null> | null = null
 
-    if (!hasConfig) {
-      newErrors.api_key = 'API key is required. Please configure your LLM provider in Settings.'
-    }
-
     if (!formData.use_case_description || formData.use_case_description.trim().length < 50) {
       newErrors.description = 'Please provide a detailed description of at least 50 characters.'
       if (!firstErrorRef) firstErrorRef = descriptionRef
@@ -527,8 +591,12 @@ export default function ExpertPage() {
     if (formData.third_party_vendor) lines.push('Third-party vendor: Yes')
     lines.push('')
     lines.push('AI System Definition (Article 3, Annex I):')
-    lines.push(`- AI Techniques: ${formData.ai_techniques.join(', ') || 'Not specified'}`)
-    lines.push(`- Outputs: ${formData.outputs_generated.join(', ') || 'Not specified'}`)
+    const techniques = [...formData.ai_techniques]
+    if (formData.ai_techniques_other.trim()) techniques.push(formData.ai_techniques_other.trim())
+    lines.push(`- AI Techniques: ${techniques.join(', ') || 'Not specified'}`)
+    const outputs = [...formData.outputs_generated]
+    if (formData.outputs_generated_other.trim()) outputs.push(formData.outputs_generated_other.trim())
+    lines.push(`- Outputs: ${outputs.join(', ') || 'Not specified'}`)
     lines.push(`- Autonomy: ${formData.autonomy_level.replace(/_/g, ' ')}`)
 
     const hasProhibited = PROHIBITED_PRACTICES_QUESTIONS.some(q => formData[q.key] === true)
@@ -615,6 +683,15 @@ export default function ExpertPage() {
 
   const handleSubmit = async () => {
     if (!validate()) return
+
+    // Warn if no LLM config but don't block
+    if (!hasLLMConfig()) {
+      const proceed = window.confirm(
+        'Warning: No LLM API key configured. The analysis will proceed but AI-powered insights may be limited. ' +
+        'Configure your API key in Settings for full functionality.\n\nProceed anyway?'
+      )
+      if (!proceed) return
+    }
 
     setIsLoading(true)
     setResults(null)
@@ -712,7 +789,13 @@ export default function ExpertPage() {
       }, 100)
     } catch (error) {
       console.error('Error analyzing use case:', error)
-      setErrors({ api_key: 'Analysis failed. Please check your API key and try again.' })
+      alert(
+        'Analysis failed. This may be due to:\n' +
+        '• Missing or invalid LLM API key (configure in Settings)\n' +
+        '• Network connectivity issues\n' +
+        '• Backend service unavailable\n\n' +
+        'Please check your configuration and try again.'
+      )
     } finally {
       setIsLoading(false)
     }
@@ -853,6 +936,9 @@ export default function ExpertPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-violet-50">
+      {/* Info Modal */}
+      <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} />
+
       {/* Header */}
       <div className="border-b-2 border-purple-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between bg-gradient-to-r from-white to-purple-50 shadow-sm">
         <div className="flex items-center gap-3">
@@ -865,6 +951,13 @@ export default function ExpertPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInfoModal(true)}
+            className="text-xs px-3 py-2 rounded-lg border-2 border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 text-indigo-700 hover:text-indigo-900 font-medium transition-all shadow-sm flex items-center gap-1.5"
+          >
+            <span className="text-base">ℹ️</span>
+            Info
+          </button>
           {results && (
             <button
               onClick={resetForm}
@@ -881,13 +974,13 @@ export default function ExpertPage() {
 
         {/* API Key Warning */}
         {!hasConfig && (
-          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <span className="text-red-500 text-xl shrink-0 mt-0.5">!</span>
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-amber-600 text-xl shrink-0 mt-0.5">⚠️</span>
             <div>
-              <p className="text-sm font-bold text-red-800">API Key Required</p>
-              <p className="text-xs text-red-700 mt-1">
-                Configure your LLM provider (API key, model) in <strong>Settings</strong> to use the Expert assessment.
-                The AI analysis requires an active LLM connection.
+              <p className="text-sm font-bold text-amber-900">LLM API Key Not Configured</p>
+              <p className="text-xs text-amber-800 mt-1">
+                For full AI-powered analysis, configure your LLM provider (API key, model) in <strong>Settings</strong>.
+                You can still proceed with the assessment, but AI insights will be limited.
               </p>
             </div>
           </div>
@@ -969,8 +1062,14 @@ export default function ExpertPage() {
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { value: 'machine_learning', label: 'Machine Learning (supervised, unsupervised, reinforcement)' },
-                  { value: 'logic_based', label: 'Logic and knowledge-based approaches' },
+                  { value: 'machine_learning', label: 'Machine Learning (supervised, unsupervised, semi-supervised)' },
+                  { value: 'deep_learning', label: 'Deep Learning / Neural Networks' },
+                  { value: 'natural_language_processing', label: 'Natural Language Processing (NLP)' },
+                  { value: 'computer_vision', label: 'Computer Vision' },
+                  { value: 'reinforcement_learning', label: 'Reinforcement Learning' },
+                  { value: 'generative_ai', label: 'Generative AI (LLMs, diffusion models, GANs)' },
+                  { value: 'expert_systems', label: 'Expert Systems / Rule-based AI' },
+                  { value: 'logic_knowledge_based', label: 'Logic and knowledge-based approaches' },
                   { value: 'statistical', label: 'Statistical approaches' },
                   { value: 'bayesian', label: 'Bayesian estimation' },
                   { value: 'search_optimization', label: 'Search and optimization methods' },
@@ -1007,7 +1106,15 @@ export default function ExpertPage() {
                   { value: 'predictions', label: 'Predictions' },
                   { value: 'recommendations', label: 'Recommendations' },
                   { value: 'decisions', label: 'Decisions' },
-                  { value: 'content', label: 'Content (text, images, audio, video)' },
+                  { value: 'classifications', label: 'Classifications' },
+                  { value: 'detections', label: 'Detections' },
+                  { value: 'content_generation', label: 'Content (text, images, audio, video)' },
+                  { value: 'conversational_responses', label: 'Conversational responses' },
+                  { value: 'translations', label: 'Translations' },
+                  { value: 'transcriptions', label: 'Transcriptions' },
+                  { value: 'summaries', label: 'Summaries' },
+                  { value: 'analyses', label: 'Analyses / Insights' },
+                  { value: 'scores', label: 'Scores / Rankings' },
                 ].map(({ value, label }) => (
                   <label key={value} className={`flex items-center gap-2 p-2.5 border-2 rounded-lg cursor-pointer transition-colors ${
                     formData.outputs_generated.includes(value)
@@ -1025,6 +1132,20 @@ export default function ExpertPage() {
                 ))}
               </div>
             </div>
+
+
+
+              {/* Other output text input */}
+              <div className="mt-3">
+                <label className="text-xs font-medium text-gray-600 block mb-1.5">Other output (please specify):</label>
+                <input
+                  type="text"
+                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-purple-400 focus:outline-none"
+                  placeholder="e.g., Visualizations, Simulations, Anomaly detection, etc."
+                  value={formData.outputs_generated_other}
+                  onChange={(e) => updateForm('outputs_generated_other', e.target.value)}
+                />
+              </div>
 
             {/* Autonomy Level */}
             <div ref={autonomyRef as React.RefObject<HTMLDivElement>}>
