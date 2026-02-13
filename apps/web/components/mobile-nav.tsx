@@ -3,13 +3,11 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import Image from 'next/image'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Home', description: 'Main dashboard' },
   { href: '/chat', label: 'Smart Q&A', description: 'Ask regulatory questions' },
   { href: '/obligations', label: 'Use Case Analysis', description: 'Find your obligations' },
-  { href: '/expert', label: 'RegolAI Expert', description: 'AI use case assessment' },
   { href: '/settings', label: 'Settings', description: 'Configure API keys' },
 ]
 

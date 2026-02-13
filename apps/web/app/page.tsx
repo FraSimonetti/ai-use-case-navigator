@@ -17,7 +17,7 @@ export default function HomePage() {
         </div>
 
         {/* Main Features */}
-        <div className="grid gap-6 md:gap-8 md:grid-cols-3 max-w-7xl mx-auto">
+        <div className="grid gap-6 md:gap-8 md:grid-cols-2 max-w-5xl mx-auto">
           {/* Smart Q&A */}
           <Card className="border-2 border-blue-200 shadow-xl hover:shadow-2xl transition-all bg-white">
             <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 p-4 sm:p-6">
@@ -36,7 +36,7 @@ export default function HomePage() {
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-start gap-2">
                     <span className="text-blue-600 font-bold mt-0.5">•</span>
-                    <span>Retrieve-Augmented Generation from official regulatory texts</span>
+                    <span>Retrieval-Augmented Generation from official regulatory texts</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-blue-600 font-bold mt-0.5">•</span>
@@ -96,46 +96,6 @@ export default function HomePage() {
 
               <Button asChild className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg">
                 <Link href="/obligations">Analyze Use Cases</Link>
-              </Button>
-            </CardContent>
-          </Card>
-          {/* RegolAI Expert */}
-          <Card className="border-2 border-purple-200 shadow-xl hover:shadow-2xl transition-all bg-white">
-            <CardHeader className="border-b bg-gradient-to-r from-purple-50 to-violet-50 p-4 sm:p-6">
-              <CardTitle className="text-xl sm:text-2xl font-bold text-gray-900">
-                RegolAI Expert
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
-              <p className="text-gray-700 leading-relaxed">
-                Complete a comprehensive assessment form to classify your AI system
-                and receive full regulatory obligations with an actionable compliance report.
-              </p>
-
-              <div className="space-y-3">
-                <h4 className="font-semibold text-sm text-gray-900 uppercase tracking-wide">Key Features</h4>
-                <ul className="space-y-2 text-sm text-gray-600">
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-600 font-bold mt-0.5">•</span>
-                    <span>Comprehensive assessment form with all relevant factors</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-600 font-bold mt-0.5">•</span>
-                    <span>Automatic risk assessment with legal basis</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-600 font-bold mt-0.5">•</span>
-                    <span>Full obligation mapping across all regulations</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-600 font-bold mt-0.5">•</span>
-                    <span>Downloadable PDF compliance report</span>
-                  </li>
-                </ul>
-              </div>
-
-              <Button asChild className="w-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg">
-                <Link href="/expert">Start Expert Assessment</Link>
               </Button>
             </CardContent>
           </Card>

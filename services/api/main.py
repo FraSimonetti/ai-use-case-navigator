@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 
-from .routes import chat, search, obligations, expert
+from .routes import chat, obligations
 
 # Application metadata
 APP_VERSION = "1.0.0"
@@ -16,18 +16,12 @@ app = FastAPI(
 API for navigating EU AI Act, GDPR, and DORA obligations for financial institutions.
 
 ## Features
-- **Use Case Mapping**: 120+ pre-mapped financial services AI use cases
-- **Risk Classification**: Automatic risk level determination based on EU AI Act Annex III
-- **Obligations Mapping**: Detailed obligations from EU AI Act, GDPR, and DORA
-- **Q&A Chat**: AI-powered compliance Q&A (requires user's own API key)
+- **Smart Q&A**: RAG-powered compliance Q&A over 1,149 official regulatory documents (requires user's own API key)
+- **Use Case Analysis**: 161 pre-mapped financial services AI use cases with risk classification and obligation mapping
 
 ## Authentication
-This API uses a BYOK (Bring Your Own Key) model. Users provide their own LLM API keys
-via headers (X-LLM-Provider, X-LLM-API-Key, X-LLM-Model) for AI-powered features.
-No server-side API keys are stored.
-
-## Open Source
-This project is open source. Visit the repository for more information.
+BYOK (Bring Your Own Key) model. Users provide their own LLM API keys via headers
+`X-LLM-Provider`, `X-LLM-API-Key`, `X-LLM-Model`. No server-side API keys are stored.
 """,
     version=APP_VERSION,
     docs_url="/docs",
@@ -81,9 +75,7 @@ async def add_security_headers(request: Request, call_next):
 
 # Include routers
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
-app.include_router(search.router, prefix="/api/search", tags=["Search"])
 app.include_router(obligations.router, prefix="/api/obligations", tags=["Obligations"])
-app.include_router(expert.router, prefix="/api/expert", tags=["Expert"])
 
 
 @app.get("/health", tags=["Health"])
@@ -117,9 +109,8 @@ async def root():
         },
         "endpoints": {
             "health": "/health",
-            "obligations": "/api/obligations",
             "chat": "/api/chat",
-            "search": "/api/search",
+            "obligations": "/api/obligations",
         },
         "note": "This API uses BYOK (Bring Your Own Key) model. AI-powered features require users to provide their own LLM API keys.",
     }
