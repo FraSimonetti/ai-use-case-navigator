@@ -337,7 +337,8 @@ class RAGEngine:
         # Build retrieved passages section
         if retrieved_passages:
             passages_text = "\n\n".join([
-                f"### SOURCE {i+1}: {passage.document.regulation} - {passage.document.article}\n"
+                f"### SOURCE {i+1}: "
+                f"{passage.document.breadcrumb if passage.document.breadcrumb else f'{passage.document.regulation} - {passage.document.article}'}\n"
                 f"**Relevance Score:** {passage.score:.2f} | **Confidence:** {passage.confidence}\n"
                 f"**URL:** {passage.url}\n\n"
                 f"**Text:**\n{passage.document.text}\n"
