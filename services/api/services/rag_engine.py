@@ -110,9 +110,9 @@ class RAGEngine:
         # Step 2: Retrieve relevant passages
         retrieved_passages = self.vector_store.retrieve(
             query=expanded_query,
-            top_k=5,
+            top_k=7,
             regulation_filter=None,  # Search across all regulations
-            min_score=0.1
+            min_score=0.05
         )
 
         # Step 3: Assess confidence
@@ -184,29 +184,111 @@ class RAGEngine:
         """
         Expand query with relevant regulatory keywords for better retrieval.
 
-        Maps common user queries to technical regulatory terms used in official texts.
+        Maps common user queries (including paraphrases) to the technical regulatory
+        terms used in the official texts, significantly improving recall.
         """
         query_lower = query.lower()
 
-        # Query expansion mappings
-        expansions = {
-            "exemption": "narrow procedural task does not materially influence Article 6 paragraph 3",
-            "exception": "narrow procedural task does not materially influence Article 6 paragraph 3",
-            "high-risk exclusion": "narrow procedural task does not materially influence Article 6 paragraph 3",
-            "not high-risk": "narrow procedural task does not materially influence Article 6 paragraph 3",
-            "exempt from high-risk": "narrow procedural task does not materially influence Article 6 paragraph 3",
-            "gpai": "general purpose AI foundation model systemic risk Article 51 52 53",
-            "foundation model": "general purpose AI GPAI Article 51 52 53",
-            "llm": "large language model general purpose AI GPAI",
-            "prohibited": "Article 5 manipulation vulnerabilities social scoring biometric",
-            "transparency": "Article 52 deepfake synthetic content emotion recognition interaction",
-            "conformity assessment": "Article 43 notified body third party assessment",
-            "high-risk obligation": "Article 9 10 11 12 13 14 15 risk management data governance",
-        }
+        # Each entry: (list_of_trigger_phrases, expansion_terms)
+        # First matching rule wins.
+        expansion_rules = [
+            # Art. 6(3) exemptions - when high-risk classification does NOT apply
+            (
+                [
+                    "shall not be considered", "not be considered", "not considered",
+                    "when not high", "not high-risk", "not high risk",
+                    "exemption", "exception", "exempt from high",
+                    "high-risk exclusion", "excluded from high",
+                    "article 6(3)", "art. 6(3)", "art 6 paragraph 3",
+                    "6(3)", "narrow procedural",
+                ],
+                "Article 6 paragraph 3 narrow procedural task does not materially influence "
+                "high-risk AI system classification exemption Annex III",
+            ),
+            # Art. 6 general - risk classification criteria
+            (
+                [
+                    "high-risk classification", "classify as high", "classified as high",
+                    "how to classify", "risk classification", "article 6",
+                    "annex iii", "annex 3", "safety component", "placed on market",
+                ],
+                "Article 6 classification high-risk AI systems Annex III safety component "
+                "paragraph 1 paragraph 2 paragraph 3 criteria",
+            ),
+            # Art. 5 prohibited practices
+            (
+                ["prohibited", "banned", "not allowed", "article 5", "manipulation",
+                 "social scoring", "subliminal", "biometric categorisation",
+                 "real-time biometric", "remote biometric"],
+                "Article 5 prohibited AI practices manipulation vulnerabilities social scoring "
+                "biometric identification public spaces emotion recognition",
+            ),
+            # GPAI / foundation models
+            (
+                ["gpai", "foundation model", "general purpose", "llm",
+                 "large language model", "article 51", "article 52", "article 53",
+                 "systemic risk", "10^25", "flops"],
+                "general purpose AI GPAI foundation model systemic risk Article 51 52 53 54 55 "
+                "transparency evaluation capability",
+            ),
+            # Art. 50 transparency for limited-risk
+            (
+                ["transparency", "disclose", "disclosure", "deepfake",
+                 "synthetic content", "emotion recognition", "chatbot",
+                 "article 50", "article 52"],
+                "Article 50 transparency obligation deepfake synthetic content "
+                "emotion recognition chatbot interaction natural person",
+            ),
+            # Conformity assessment
+            (
+                ["conformity", "conformity assessment", "notified body",
+                 "third party assessment", "ce marking", "article 43"],
+                "Article 43 conformity assessment procedure notified body third party "
+                "self-assessment technical documentation",
+            ),
+            # High-risk obligations (Arts. 9-15)
+            (
+                ["high-risk obligation", "obligation for high", "what must",
+                 "risk management system", "data governance", "technical documentation",
+                 "human oversight", "accuracy robustness", "article 9", "article 10",
+                 "article 11", "article 12", "article 13", "article 14", "article 15"],
+                "Article 9 10 11 12 13 14 15 risk management system data governance "
+                "technical documentation logging transparency human oversight accuracy robustness",
+            ),
+            # Provider vs deployer obligations
+            (
+                ["provider obligation", "deployer obligation", "provider vs deployer",
+                 "who is responsible", "responsibility", "article 16", "article 26"],
+                "Article 16 provider obligations Article 26 deployer obligations "
+                "responsibility high-risk AI system",
+            ),
+            # Deadlines / timeline
+            (
+                ["deadline", "when does", "when apply", "entry into force",
+                 "implementation", "transition", "february 2025", "august 2026",
+                 "article 113"],
+                "Article 113 entry into force transitional provisions application dates "
+                "February 2025 August 2026 implementation timeline",
+            ),
+            # GDPR automated decision-making
+            (
+                ["automated decision", "article 22", "solely automated",
+                 "profiling", "legal effect", "right to explanation",
+                 "human review", "right to contest"],
+                "Article 22 GDPR automated individual decisions profiling legal effects "
+                "right to explanation human review contest",
+            ),
+            # DORA
+            (
+                ["dora", "digital operational resilience", "ict risk",
+                 "third party ict", "article 28", "incident reporting"],
+                "DORA Article 5 ICT risk management framework Article 28 third-party "
+                "ICT service providers incident classification reporting",
+            ),
+        ]
 
-        # Check if query matches any expansion keywords
-        for keyword, expansion in expansions.items():
-            if keyword in query_lower:
+        for triggers, expansion in expansion_rules:
+            if any(trigger in query_lower for trigger in triggers):
                 return f"{query} {expansion}"
 
         return query

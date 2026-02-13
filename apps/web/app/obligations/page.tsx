@@ -232,6 +232,370 @@ const USE_CASES = [
   { value: 'witness_credibility_analysis', label: 'Witness Credibility Analysis', category: 'legal_services', risk: 'high_risk', description: '⚠️ HIGH-RISK: AI analyzing witness testimony. May affect legal outcomes under Annex III point 8.', annex_ref: 'Annex III, point 8' },
 ]
 
+// ─── Context-Dependent Decision Logic ──────────────────────────────────────
+
+interface ContextFactor {
+  label: string
+  description: string
+  field: string
+  whenTrue: 'high_risk' | 'minimal_risk' | 'limited_risk'
+}
+
+interface ContextDecision {
+  headline: string
+  factors: ContextFactor[]
+  defaultIfNone: 'minimal_risk' | 'limited_risk'
+}
+
+// For each context-dependent use case: what factors determine the final classification
+const CONTEXT_DECISIONS: Record<string, ContextDecision> = {
+  loan_pricing: {
+    headline: 'Loan Pricing risk depends on whether the AI output can deny or restrict credit access.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI output can deny or restrict the loan → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Decision produces a legal or significant financial effect on the individual', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  collections_recovery: {
+    headline: 'Collections risk depends on automation level and impact on the individual.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can block repayment options or deny debt restructuring → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Initiates legal proceedings or enforces legal claims → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Fully Automated', description: 'No human review of individual decisions → GDPR Art. 22 applies', field: 'fully_automated', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  debt_restructuring: {
+    headline: 'Debt restructuring risk depends on whether the AI determines access to restructuring options.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can deny restructuring → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Output has legal or significant financial effects', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  fraud_detection: {
+    headline: 'Fraud detection risk depends on whether the system can deny financial services to individuals.',
+    factors: [
+      { label: 'Can Deny Service', description: 'A positive flag blocks account access, payments, or credit → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Flags that lead to legal proceedings or account termination', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  fraud_detection_card: {
+    headline: 'Card fraud detection: does blocking a transaction deny access to the individual\'s funds?',
+    factors: [
+      { label: 'Can Deny Service', description: 'Permanently blocks card/account access, not just a single transaction → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  fraud_detection_account: {
+    headline: 'Account takeover detection: does it lead to account suspension?',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can suspend or close accounts → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  aml_kyc: {
+    headline: 'AML/KYC risk depends on whether the system can deny account opening or financial access.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI outcome can block account opening or terminate relationships → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Output feeds into legal or regulatory enforcement actions', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  aml_transaction_monitoring: {
+    headline: 'AML transaction monitoring: does flagging lead to account restriction?',
+    factors: [
+      { label: 'Can Deny Service', description: 'Flags that automatically freeze or block accounts → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  aml_customer_risk_scoring: {
+    headline: 'AML customer risk scoring: does the score gate access to services?',
+    factors: [
+      { label: 'Can Deny Service', description: 'High-risk score automatically restricts or terminates services → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  sanctions_screening: {
+    headline: 'Sanctions screening risk depends on whether a match can deny service without human review.',
+    factors: [
+      { label: 'Fully Automated', description: 'Match denies service automatically, without human review → HIGH-RISK', field: 'fully_automated', whenTrue: 'high_risk' },
+      { label: 'Can Deny Service', description: 'Positive match blocks access to financial services → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  pep_screening: {
+    headline: 'PEP screening risk depends on whether PEP status results in denial of services.',
+    factors: [
+      { label: 'Can Deny Service', description: 'PEP designation leads to account denial or closure → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  transaction_monitoring: {
+    headline: 'General transaction monitoring risk depends on whether alerts lead to service denial.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Automated alerts freeze or close accounts → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  trade_surveillance: {
+    headline: 'Trade surveillance: does the system generate regulatory referrals with individual consequences?',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Output directly feeds into regulatory enforcement with legal consequences → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Can Deny Service', description: 'Alert leads to trading suspension → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  market_abuse_detection: {
+    headline: 'Market abuse detection: does the system directly trigger enforcement actions?',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Alerts directly feed regulatory enforcement with legal consequences → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  insider_trading_detection: {
+    headline: 'Insider trading detection: same logic as market abuse detection.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Alerts feed directly into enforcement with legal consequences → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  robo_advisory: {
+    headline: 'Robo-advisory risk depends on client type and whether advice has binding effects.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Advice has binding legal or contractual effects on the client → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Vulnerable Groups', description: 'Advising retail investors, especially vulnerable groups → increased risk', field: 'vulnerable_groups', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'limited_risk',
+  },
+  robo_advisory_retail: {
+    headline: 'Retail robo-advisory is higher risk due to MiFID II suitability requirements.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Binding investment advice with legal consequences → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Fully Automated', description: 'No human advisor involved in recommendation → heightened obligations', field: 'fully_automated', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'limited_risk',
+  },
+  insurance_pricing_property: {
+    headline: 'Property insurance pricing: not explicitly high-risk under Annex III 5(c) (only life/health are).',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Denial of coverage or discriminatory pricing with legal effects → HIGH-RISK via Art. 6(1)', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Vulnerable Groups', description: 'Pricing targets or disproportionately affects vulnerable individuals', field: 'vulnerable_groups', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  insurance_pricing_motor: {
+    headline: 'Motor insurance pricing: not explicitly high-risk under Annex III 5(c).',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can deny coverage entirely (mandatory insurance context) → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Discriminatory pricing with legally significant effects', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  insurance_pricing_liability: {
+    headline: 'Liability insurance pricing: not explicitly high-risk under Annex III 5(c).',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can deny coverage → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  insurance_underwriting_property: {
+    headline: 'Property underwriting: not explicitly high-risk but depends on denial of coverage.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can deny coverage entirely → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  claims_processing: {
+    headline: 'Claims processing risk depends on whether the AI can deny or significantly reduce claims.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can deny claims automatically → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Fully Automated', description: 'Fully automated denial without human review → GDPR Art. 22 + high-risk risk', field: 'fully_automated', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  claims_fraud_detection: {
+    headline: 'Claims fraud detection risk depends on whether a positive flag denies claims.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Fraud flag automatically denies the claim → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  telematics_pricing: {
+    headline: 'Telematics pricing: uses behavioral data (driving) to price motor insurance.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Score can deny coverage → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Special Category Data', description: 'Infers health conditions from driving data → GDPR Art. 9 triggered', field: 'uses_special_category_data', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  cv_parsing: {
+    headline: 'CV parsing: may qualify for Art. 6(3) exemption if purely preparatory (data extraction only).',
+    factors: [
+      { label: 'Narrow Procedural Task', description: 'Only extracts structured data, does NOT rank or filter candidates → EXEMPT from high-risk via Art. 6(3)(d)', field: 'narrow_procedural_task', whenTrue: 'minimal_risk' },
+      { label: 'Affects Legal Rights', description: 'Extraction errors or bias lead to candidate exclusion → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'high_risk',
+  },
+  workforce_planning: {
+    headline: 'Workforce planning: forecasting headcount is not directly high-risk.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Planning output directly drives individual layoff or hiring decisions → HIGH-RISK (Annex III 4)', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  compensation_analysis: {
+    headline: 'Compensation analysis: depends on whether AI recommendations directly set pay.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'AI output directly determines individual pay → HIGH-RISK (Annex III 4(b))', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  talent_retention: {
+    headline: 'Talent retention (flight risk): depends on whether predictions drive individual employment decisions.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Flight risk score triggers termination or demotion decisions → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  customer_onboarding: {
+    headline: 'Customer onboarding risk depends on whether the AI can deny account opening.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI can reject onboarding / deny account → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  customer_onboarding_identity: {
+    headline: 'Identity verification risk depends on biometric use and denial of service.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Failed verification denies account access → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Special Category Data', description: 'Uses biometric data → may be HIGH-RISK under Annex III point 1', field: 'uses_special_category_data', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  access_control: {
+    headline: 'Access control risk depends on whether AI controls access to critical systems or services.',
+    factors: [
+      { label: 'Can Deny Service', description: 'AI controls access to financial services, not just internal IT → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  behavioral_biometrics: {
+    headline: 'Behavioral biometrics risk depends on biometric identification scope.',
+    factors: [
+      { label: 'Special Category Data', description: 'System identifies individuals via behavioral patterns (biometric data) → HIGH-RISK Annex III 1', field: 'uses_special_category_data', whenTrue: 'high_risk' },
+      { label: 'Can Deny Service', description: 'Failed match denies financial service access → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  internal_risk_models: {
+    headline: 'Internal risk models: used for capital calculations, generally not directly high-risk.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Model output directly determines credit decisions for individuals → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  irb_models: {
+    headline: 'IRB models: portfolio-level capital calculation, but individual PD/LGD can feed credit decisions.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Individual PD output directly drives credit denial → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  credit_risk_modeling: {
+    headline: 'Credit risk modeling: portfolio level is minimal; individual-level decisions can be high-risk.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Model output directly drives individual credit decisions → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Individuals', description: 'Model output is used for decisions about natural persons', field: 'involves_natural_persons', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  pd_models: {
+    headline: 'PD (Probability of Default) models: high-risk if output directly determines credit access.',
+    factors: [
+      { label: 'Can Deny Service', description: 'PD score used directly in credit approval/denial → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  dynamic_pricing: {
+    headline: 'Dynamic pricing risk depends on the product being priced and individual impact.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Pricing effectively denies access to essential service → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+      { label: 'Affects Legal Rights', description: 'Discriminatory pricing with legally significant effects on natural persons', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  collateral_valuation: {
+    headline: 'Collateral valuation risk depends on whether the output feeds into credit decisions.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Valuation directly determines whether credit is granted → HIGH-RISK', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  real_estate_valuation: {
+    headline: 'Real estate valuation: if used in mortgage decisions, can be high-risk.',
+    factors: [
+      { label: 'Can Deny Service', description: 'Valuation output directly causes mortgage denial → HIGH-RISK (Annex III 5(b))', field: 'denies_service_access', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+  case_outcome_prediction: {
+    headline: 'Case outcome prediction: HIGH-RISK if used by courts; MINIMAL if internal law firm strategy tool.',
+    factors: [
+      { label: 'Affects Legal Rights', description: 'Used by courts or administrative bodies to decide cases → HIGH-RISK (Annex III 8)', field: 'affects_legal_rights', whenTrue: 'high_risk' },
+      { label: 'Fully Automated', description: 'Prediction used without human judicial review in decisions → HIGH-RISK', field: 'fully_automated', whenTrue: 'high_risk' },
+    ],
+    defaultIfNone: 'minimal_risk',
+  },
+}
+
+function computeLikelyClassification(
+  useCase: typeof USE_CASES[0],
+  formData: Record<string, unknown>
+): { classification: string; reason: string } {
+  if (useCase.risk !== 'context_dependent') {
+    return { classification: useCase.risk, reason: 'Fixed classification.' }
+  }
+
+  const decision = CONTEXT_DECISIONS[useCase.value]
+  if (!decision) {
+    return { classification: 'context_dependent', reason: 'Submit the form to determine classification.' }
+  }
+
+  // Check factors in order — first match wins
+  for (const factor of decision.factors) {
+    if (formData[factor.field]) {
+      if (factor.whenTrue === 'high_risk') {
+        return {
+          classification: 'high_risk',
+          reason: `HIGH-RISK because: ${factor.description}`,
+        }
+      }
+      if (factor.whenTrue === 'minimal_risk') {
+        return {
+          classification: 'minimal_risk',
+          reason: `MINIMAL RISK because: ${factor.description}`,
+        }
+      }
+      if (factor.whenTrue === 'limited_risk') {
+        return {
+          classification: 'limited_risk',
+          reason: `LIMITED RISK because: ${factor.description}`,
+        }
+      }
+    }
+  }
+
+  return {
+    classification: decision.defaultIfNone,
+    reason: `Default classification when no qualifying context is present.`,
+  }
+}
+
+// ─── Obligation interface ─────────────────────────────────────────────────────
+
 // Obligation interface
 interface Obligation {
   id: string
@@ -643,6 +1007,72 @@ export default function ObligationsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Context-Dependent Decision Banner */}
+      {selectedUseCase?.risk === 'context_dependent' && (() => {
+        const decision = CONTEXT_DECISIONS[selectedUseCase.value]
+        const likely = computeLikelyClassification(selectedUseCase, formData as Record<string, unknown>)
+        const likelyColor = likely.classification === 'high_risk'
+          ? 'bg-red-100 text-red-800 border-red-300'
+          : likely.classification === 'limited_risk'
+          ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+          : likely.classification === 'minimal_risk'
+          ? 'bg-green-100 text-green-800 border-green-300'
+          : 'bg-blue-100 text-blue-800 border-blue-300'
+        const likelyLabel = likely.classification === 'high_risk' ? 'HIGH-RISK'
+          : likely.classification === 'limited_risk' ? 'LIMITED RISK'
+          : likely.classification === 'minimal_risk' ? 'MINIMAL RISK'
+          : 'CONTEXT-DEPENDENT'
+
+        return (
+          <Card className="mb-4 border-2 border-blue-300 bg-blue-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-blue-900 flex items-center gap-2">
+                ⚖️ Context Assessment — {selectedUseCase.label}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {decision && (
+                <>
+                  <p className="text-sm text-blue-800">{decision.headline}</p>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">
+                      Determinant Factors (answer in Step 3 below):
+                    </p>
+                    {decision.factors.map((factor) => (
+                      <div key={factor.field} className={`flex items-start gap-3 p-2 rounded border text-sm ${(formData as Record<string, unknown>)[factor.field] ? 'bg-orange-50 border-orange-300' : 'bg-white border-gray-200'}`}>
+                        <span className={`mt-0.5 w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center text-xs font-bold ${(formData as Record<string, unknown>)[factor.field] ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-400'}`}>
+                          {(formData as Record<string, unknown>)[factor.field] ? '✓' : ''}
+                        </span>
+                        <div>
+                          <span className="font-semibold">{factor.label}:</span>{' '}
+                          <span className="text-gray-700">{factor.description}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="text-xs text-blue-700 bg-white border border-blue-200 rounded p-2">
+                      <strong>Default (if none apply):</strong> {decision.defaultIfNone.replace('_', ' ').toUpperCase()}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Live classification preview */}
+              <div className="flex items-center gap-3 pt-2 border-t border-blue-200">
+                <span className="text-sm font-semibold text-blue-900">Likely Classification:</span>
+                <span className={`px-3 py-1 rounded-full text-sm font-bold border ${likelyColor}`}>
+                  {likelyLabel}
+                </span>
+                <span className="text-xs text-gray-600 flex-1">{likely.reason}</span>
+              </div>
+              <p className="text-xs text-blue-700">
+                Set the relevant context flags in Step 3 below, then click <strong>"Find All Obligations"</strong> to get the confirmed classification and full obligation list.
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Step 3: Context Filters */}
       <Card className="mb-4">
