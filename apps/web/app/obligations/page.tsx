@@ -437,7 +437,7 @@ const CONTEXT_DECISIONS: Record<string, ContextDecision> = {
       { label: 'Narrow Procedural Task', description: 'Only extracts structured data, does NOT rank or filter candidates → EXEMPT from high-risk via Art. 6(3)(d)', field: 'narrow_procedural_task', whenTrue: 'minimal_risk' },
       { label: 'Affects Legal Rights', description: 'Extraction errors or bias lead to candidate exclusion → HIGH-RISK', field: 'affects_legal_rights', whenTrue: 'high_risk' },
     ],
-    defaultIfNone: 'high_risk',
+    defaultIfNone: 'limited_risk',
   },
   workforce_planning: {
     headline: 'Workforce planning: forecasting headcount is not directly high-risk.',
