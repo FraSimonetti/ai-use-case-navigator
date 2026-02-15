@@ -391,25 +391,104 @@ class VectorStore:
         Ensure we have a query encoder available at retrieval time.
 
         Priority:
-        1. Loaded sentence-transformers model
-        2. Loaded TF-IDF vectorizer
+        1. Loaded sentence-transformers model (dimension-compatible)
+        2. Loaded TF-IDF vectorizer (dimension-compatible)
         3. Lazy-load sentence-transformers model matching stored embeddings
+        4. Runtime TF-IDF rebuild as safe fallback
         """
+        target_dim = self._embedding_dimension()
+
         if self.model is not None:
-            return True
+            try:
+                model_dim = self._model_dimension(self.model)
+                if target_dim is None or model_dim == target_dim:
+                    return True
+                print(
+                    "⚠️  Warning: sentence-transformers query dimension "
+                    f"({model_dim}) does not match stored embeddings ({target_dim})."
+                )
+                self.model = None
+            except Exception as e:
+                print(f"⚠️  Warning: existing sentence-transformers model unavailable: {e}")
+                self.model = None
+
         if self.vectorizer is not None:
-            return True
-        if self._encoder_load_attempted:
+            vectorizer_dim = self._vectorizer_dimension()
+            if target_dim is None or vectorizer_dim is None or vectorizer_dim == target_dim:
+                return True
+            print(
+                "⚠️  Warning: TF-IDF vectorizer dimension "
+                f"({vectorizer_dim}) does not match stored embeddings ({target_dim})."
+            )
+            self.vectorizer = None
+
+        if not self._encoder_load_attempted:
+            self._encoder_load_attempted = True
+            try:
+                from sentence_transformers import SentenceTransformer
+
+                candidate = SentenceTransformer("all-MiniLM-L6-v2")
+                model_dim = self._model_dimension(candidate)
+                if target_dim is None or model_dim == target_dim:
+                    self.model = candidate
+                    print("Loaded sentence-transformers query encoder: all-MiniLM-L6-v2")
+                    return True
+                print(
+                    "⚠️  Warning: loaded sentence-transformers query dimension "
+                    f"({model_dim}) does not match stored embeddings ({target_dim})."
+                )
+            except Exception as e:
+                print(f"⚠️  Warning: unable to load sentence-transformers query encoder: {e}")
+
+        return self._rebuild_tfidf_runtime()
+
+    def _embedding_dimension(self) -> Optional[int]:
+        if self.embeddings is None:
+            return None
+        if self.embeddings.ndim == 1:
+            return int(self.embeddings.shape[0])
+        if self.embeddings.ndim >= 2:
+            return int(self.embeddings.shape[1])
+        return None
+
+    def _model_dimension(self, model) -> int:
+        get_dim = getattr(model, "get_sentence_embedding_dimension", None)
+        if callable(get_dim):
+            dim = get_dim()
+            if dim:
+                return int(dim)
+        probe = model.encode(["dimension probe"], convert_to_numpy=True)[0]
+        return int(probe.shape[0])
+
+    def _vectorizer_dimension(self) -> Optional[int]:
+        if self.vectorizer is None:
+            return None
+        if hasattr(self.vectorizer, "vocabulary_") and self.vectorizer.vocabulary_:
+            return int(len(self.vectorizer.vocabulary_))
+        try:
+            return int(self.vectorizer.transform(["dimension probe"]).shape[1])
+        except Exception:
+            return None
+
+    def _rebuild_tfidf_runtime(self) -> bool:
+        """
+        Ensure retrieval still works when persisted embeddings and query encoders
+        are incompatible (for example semantic vectors + legacy TF-IDF pickle).
+        """
+        if not self.documents:
             return False
 
-        self._encoder_load_attempted = True
         try:
-            from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer("all-MiniLM-L6-v2")
-            print("Loaded sentence-transformers query encoder: all-MiniLM-L6-v2")
-            return True
+            print(
+                "⚠️  Rebuilding TF-IDF embeddings in memory to realign query and "
+                "document vector dimensions."
+            )
+            self.model = None
+            self._generate_tfidf_embeddings()
+            self._init_bm25()
+            return self.vectorizer is not None and self.embeddings is not None
         except Exception as e:
-            print(f"⚠️  Warning: unable to load sentence-transformers query encoder: {e}")
+            print(f"⚠️  Failed to rebuild TF-IDF embeddings at runtime: {e}")
             return False
 
     # ── Public API ──────────────────────────────────────────────────────────
