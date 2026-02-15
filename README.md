@@ -1,134 +1,232 @@
-# AI Use Case Navigator
+# RegolAI - EU AI Act Navigator
 
-**Free and Open Source** compliance workspace for navigating EU AI Act, GDPR, and DORA obligations.
+Open-source compliance workspace for AI use cases in financial services.
 
-🆓 **100% Free to Host** - No server-side API keys needed  
-🔑 **BYOK (Bring Your Own Key)** - Users add their own API key in Settings  
-📖 **Open Source** - MIT License  
-🏦 **Bank-Ready** - 120+ pre-mapped use cases with accurate regulatory classification
+RegolAI helps teams:
+- classify AI use cases under the EU AI Act,
+- identify obligations across EU AI Act, GDPR, DORA, and GPAI,
+- run guided regulatory Q&A grounded in official texts.
 
-## Features
-
-- **Obligation Finder**: 120+ predefined AI use cases with complete regulatory mapping (no API key needed!)
-- **Risk Classification**: Automatic AI Act risk level determination (High-Risk, Limited, Minimal)
-- **Direct Article Links**: Links to EU AI Act, GDPR, and DORA articles on official sources
-- **Exemption Handling**: Art. 6(3) exemptions properly mapped
-- **AI Act Q&A**: Ask questions about compliance (requires user's API key)
-- **Custom Use Case Analysis**: AI-powered analysis (requires user's API key)
-- **Multi-Provider Support**: OpenRouter, OpenAI, Anthropic
-
-## How It Works
-
-1. **Core Features** (Use Case & Obligations) work without any API key
-2. **AI Features** (Q&A, Custom Analysis) require users to add their own API key in Settings
-3. **Your hosting is free** - you don't pay for any API usage, users use their own keys
-
-## Quick Start
-
-### 1. Clone and Install
+## First 5 Minutes
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ai-use-case-navigator.git
-cd ai-use-case-navigator
+git clone <YOUR_REPO_URL>
+cd AI_ACT_Navigator
+./scripts/setup.sh
+```
 
-# Frontend
+Then run in two terminals:
+
+```bash
+# Terminal 1
+make backend
+
+# Terminal 2
+make frontend
+```
+
+Open:
+- `http://127.0.0.1:3001`
+
+## Requirements
+
+- Node.js `20` (see `.nvmrc`)
+- npm
+- Python `3.11+`
+- `pdftotext` (Poppler) for rebuilding vectors
+
+macOS:
+```bash
+brew install poppler
+```
+
+## Core Features
+
+- **Use Case Analysis**
+  - 160+ mapped AI use cases
+  - risk classification support (High-Risk, Limited, Minimal, Context-Dependent)
+  - obligation mapping with implementation details
+- **Smart Q&A**
+  - retrieval-augmented Q&A on EU AI Act, GDPR, DORA
+  - user-provided API keys (OpenRouter, OpenAI, Anthropic)
+  - chat history with management actions (new, rename, restart, duplicate, delete)
+- **Regulatory Context Controls**
+  - role and institution-specific interpretation support
+  - advanced context for DORA/GPAI and sectoral overlays
+
+## Architecture
+
+- **Frontend**: Next.js (App Router), React, Tailwind
+- **Backend**: FastAPI
+- **Retrieval**: local vector store + semantic embeddings from official regulation texts
+- **Model Access**: BYOK (Bring Your Own Key) via request headers
+
+## Repository Layout
+
+```text
+.
+├── apps/
+│   └── web/                  # Next.js frontend
+├── services/
+│   └── api/                  # FastAPI backend
+├── data/
+│   ├── *.pdf                 # Source regulation texts
+│   └── embeddings/           # Local vector DB artifacts
+├── scripts/
+│   ├── setup.sh              # One-command local setup
+│   └── ...                   # Utility scripts
+├── docs/
+│   ├── README.md             # Documentation index
+│   ├── guides/               # Deployment + contributing
+│   ├── archive/              # Historical notes/audits
+│   └── prompts/              # Prompt assets
+├── Makefile
+├── requirements.txt
+├── vercel.json
+├── railway.json
+└── README.md
+```
+
+## Local Development
+
+### Option A: one-command setup
+
+```bash
+./scripts/setup.sh
+```
+
+### Option B: manual setup
+
+Backend:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r services/api/requirements.txt
+python3 -m uvicorn services.api.main:app --host 127.0.0.1 --port 8010
+```
+
+Frontend:
+```bash
 cd apps/web
 npm install
-
-# Backend
-cd ../../services/api
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+cp .env.local.example .env.local
+npm run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
-### 2. Run Development Servers
+## Makefile Commands
 
 ```bash
-# Terminal 1 - Backend
-cd services/api
-source venv/bin/activate
-python -m uvicorn services.api.main:app --reload --port 8000
-
-# Terminal 2 - Frontend
-cd apps/web
-npm run dev
+make help
+make setup
+make backend
+make frontend
+make rebuild-vectors
+make validate-contributions
 ```
 
-Open http://localhost:3000
+## Build / Rebuild Vector Store
 
-### 3. Configure API Key (Users)
+If retrieval is missing or stale:
 
-Users go to **Settings** page and add their own API key:
-- **OpenRouter** - Access to 100+ models (recommended)
-- **OpenAI** - Direct GPT access
-- **Anthropic** - Direct Claude access
-
-## Security
-
-- API keys are stored only in the user's browser (localStorage)
-- Keys are sent directly to the AI provider, not stored on your server
-- No API keys are logged or persisted server-side
-
-## Project Structure
-
+```bash
+source .venv/bin/activate
+python3 services/api/services/vector_store.py
 ```
-ai-use-case-navigator/
-├── apps/
-│   └── web/                 # Next.js frontend
-│       ├── app/             # Pages (App Router)
-│       │   ├── settings/    # API key configuration
-│       │   ├── chat/        # Q&A page
-│       │   └── obligations/ # Use Case finder
-│       ├── components/      # React components
-│       └── lib/             # Utilities
-├── services/
-│   └── api/                 # FastAPI backend
-│       ├── routes/          # API endpoints
-│       └── services/        # Business logic
-└── .env                     # Environment variables
-```
-
-## Deployment
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for full instructions.
-
-### Quick Deploy (Free)
-
-**Frontend → Vercel (Free)**
-1. Connect GitHub repo to Vercel
-2. Set root directory: `apps/web`
-3. Add env: `NEXT_PUBLIC_API_URL=https://your-backend-url`
-
-**Backend → Railway / Render (Free tier)**
-1. Connect GitHub repo
-2. Set root directory: `services/api`
-3. No API keys needed!
-
-## Tech Stack
-
-- **Frontend**: Next.js 14+, React, Tailwind CSS, shadcn/ui
-- **Backend**: FastAPI, Python 3.11+
-- **AI Providers**: OpenRouter, OpenAI, Anthropic (user provides key)
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL | For frontend deployment |
-| `ALLOWED_ORIGINS` | CORS origins (production) | Optional |
+### Frontend (`apps/web/.env.local`)
 
-**Note**: No LLM API keys needed on the server! Users configure their own in the app.
+- `API_URL` - backend base URL used by server routes
+- `NEXT_PUBLIC_API_URL` - backend base URL for client-side calls where needed
+
+Default local values:
+
+```env
+API_URL=http://127.0.0.1:8010
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8010
+```
+
+### Backend
+
+- `ALLOWED_ORIGINS` (optional) - comma-separated CORS allowlist
+
+## Troubleshooting
+
+### SSL certificate verify failed
+
+If custom analysis or chat returns certificate errors, ensure:
+- your Python environment is from `./scripts/setup.sh`
+- `certifi` is installed (`pip show certifi`)
+
+### Vector database not initialized
+
+Run:
+```bash
+source .venv/bin/activate
+python3 services/api/services/vector_store.py
+```
+
+### Port already in use
+
+- Frontend default: `3001`
+- Backend default: `8010`
+
+Change ports in commands and update `apps/web/.env.local` accordingly.
+
+### Missing dependencies after clone
+
+Run:
+```bash
+./scripts/setup.sh
+```
+
+## API Key Model (BYOK)
+
+RegolAI does not require server-side LLM keys for normal operation.
+Users configure their own provider key in the UI settings:
+- OpenRouter
+- OpenAI
+- Anthropic
+
+## Community Contributions
+
+To make external contributions easy, the repository includes structured contribution files:
+
+- `contrib/use-cases/*.json`
+- `contrib/regulations/*.json`
+
+Start from:
+- `contrib/use-cases/example.use-case.json`
+- `contrib/regulations/example.regulation.json`
+
+Validate proposals:
+
+```bash
+make validate-contributions
+```
+
+Then open a PR (templates in `.github/` guide required fields).
+
+## Deployment
+
+See:
+- `docs/guides/deployment.md`
+
+Typical setup:
+- Frontend on Vercel
+- Backend on Railway/Render
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR.
+See:
+- `docs/guides/contributing.md`
+
+## Documentation
+
+See:
+- `docs/README.md` for full docs index
 
 ## License
 
-MIT - Free to use, modify, and distribute.
-
-## Acknowledgments
-
-- EU AI Act text: [artificialintelligenceact.eu](https://artificialintelligenceact.eu)
-- GDPR reference: [gdpr-info.eu](https://gdpr-info.eu)
+MIT (see `LICENSE`)

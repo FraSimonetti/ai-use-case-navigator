@@ -15,6 +15,20 @@ interface RetrievedPassage {
   score: number
   confidence: 'high' | 'medium' | 'low'
   url: string
+  breadcrumb?: string
+}
+
+interface MatchedArticle {
+  regulation: string
+  article: string
+  breadcrumb?: string
+}
+
+interface ExplorationMeta {
+  intent: 'article_clarification' | 'obligation_finder' | 'concept_explainer' | 'cross_regulation_compare' | 'general'
+  regulation_focus: 'all' | 'EU AI Act' | 'GDPR' | 'DORA'
+  suggested_questions: string[]
+  matched_articles: MatchedArticle[]
 }
 
 interface Message {
@@ -24,11 +38,20 @@ interface Message {
   retrieved_passages?: RetrievedPassage[]
   confidence?: 'high' | 'medium' | 'low' | 'none'
   warnings?: string[]
+  exploration?: ExplorationMeta
 }
 
 interface UserContext {
   role: 'deployer' | 'provider' | 'provider_and_deployer' | 'importer'
   institution_type: string
+}
+
+interface ChatSession {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: Message[]
 }
 
 const INSTITUTION_TYPES = [
@@ -48,12 +71,40 @@ const ROLES = [
   { value: 'importer', label: 'Importer', description: 'I bring non-EU AI to market' },
 ]
 
+const INTENT_MODES = [
+  { value: 'general', label: 'General Q&A' },
+  { value: 'article_clarification', label: 'Clarify Article' },
+  { value: 'obligation_finder', label: 'Find Obligations' },
+  { value: 'concept_explainer', label: 'Explain Concept' },
+  { value: 'cross_regulation_compare', label: 'Compare Regulations' },
+] as const
+
+const CHAT_HISTORY_KEY = 'ai_navigator_chat_history_v1'
+const ACTIVE_CHAT_KEY = 'ai_navigator_chat_active_id'
+
+const REGULATION_FOCUSES = [
+  { value: 'all', label: 'All Regulations' },
+  { value: 'EU AI Act', label: 'EU AI Act' },
+  { value: 'GDPR', label: 'GDPR' },
+  { value: 'DORA', label: 'DORA' },
+] as const
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedSource, setSelectedSource] = useState<Source | null>(null)
   const [hasConfig, setHasConfig] = useState(false)
   const [showContextPanel, setShowContextPanel] = useState(false)
+  const [showFiltersPanel, setShowFiltersPanel] = useState(true)
+  const [showHistoryPanel, setShowHistoryPanel] = useState(true)
+  const [showMobileHistoryPanel, setShowMobileHistoryPanel] = useState(false)
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [actionMenuSessionId, setActionMenuSessionId] = useState<string | null>(null)
+  const [intentMode, setIntentMode] = useState<ExplorationMeta['intent']>('general')
+  const [regulationFocus, setRegulationFocus] = useState<ExplorationMeta['regulation_focus']>('all')
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([])
+  const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [userContext, setUserContext] = useState<UserContext>({
     role: 'deployer',
     institution_type: 'bank',
@@ -71,6 +122,33 @@ export default function ChatPage() {
         // Ignore parse errors
       }
     }
+    const savedIntent = localStorage.getItem('ai_navigator_chat_intent')
+    if (savedIntent) {
+      setIntentMode(savedIntent as ExplorationMeta['intent'])
+    }
+    const savedFocus = localStorage.getItem('ai_navigator_chat_focus')
+    if (savedFocus) {
+      setRegulationFocus(savedFocus as ExplorationMeta['regulation_focus'])
+    }
+
+    const savedHistory = localStorage.getItem(CHAT_HISTORY_KEY)
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory) as ChatSession[]
+        const sorted = parsed.sort((a, b) => b.updatedAt - a.updatedAt)
+        setChatHistory(sorted)
+        const savedActiveId = localStorage.getItem(ACTIVE_CHAT_KEY)
+        const active = savedActiveId
+          ? sorted.find((session) => session.id === savedActiveId)
+          : sorted[0]
+        if (active) {
+          setActiveChatId(active.id)
+          setMessages(active.messages || [])
+        }
+      } catch (_e) {
+        // Ignore parse errors
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -78,9 +156,130 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  useEffect(() => {
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory))
+  }, [chatHistory])
+
+  useEffect(() => {
+    if (activeChatId) {
+      localStorage.setItem(ACTIVE_CHAT_KEY, activeChatId)
+    } else {
+      localStorage.removeItem(ACTIVE_CHAT_KEY)
+    }
+  }, [activeChatId])
+
+  useEffect(() => {
+    if (!activeChatId) return
+    setChatHistory((prev) => {
+      const updated = prev.map((session) =>
+        session.id === activeChatId
+          ? { ...session, messages, updatedAt: Date.now() }
+          : session
+      )
+      return [...updated].sort((a, b) => b.updatedAt - a.updatedAt)
+    })
+  }, [messages, activeChatId])
+
   const saveContext = (ctx: UserContext) => {
     setUserContext(ctx)
     localStorage.setItem('ai_navigator_chat_context', JSON.stringify(ctx))
+  }
+
+  const updateIntentMode = (mode: ExplorationMeta['intent']) => {
+    setIntentMode(mode)
+    localStorage.setItem('ai_navigator_chat_intent', mode)
+  }
+
+  const updateRegulationFocus = (focus: ExplorationMeta['regulation_focus']) => {
+    setRegulationFocus(focus)
+    localStorage.setItem('ai_navigator_chat_focus', focus)
+  }
+
+  const startNewConversation = () => {
+    setActiveChatId(null)
+    setMessages([])
+    setEditingSessionId(null)
+    setEditingTitle('')
+    setActionMenuSessionId(null)
+  }
+
+  const openConversation = (sessionId: string) => {
+    const session = chatHistory.find((item) => item.id === sessionId)
+    if (!session) return
+    setActiveChatId(session.id)
+    setMessages(session.messages || [])
+    setEditingSessionId(null)
+    setEditingTitle('')
+    setActionMenuSessionId(null)
+  }
+
+  const startRenameConversation = (sessionId: string) => {
+    const session = chatHistory.find((item) => item.id === sessionId)
+    if (!session) return
+    setEditingSessionId(sessionId)
+    setEditingTitle(session.title)
+  }
+
+  const saveRenameConversation = (sessionId: string) => {
+    const nextTitle = editingTitle.trim()
+    if (!nextTitle) return
+    setChatHistory((prev) =>
+      prev.map((item) =>
+        item.id === sessionId ? { ...item, title: nextTitle, updatedAt: Date.now() } : item
+      )
+    )
+    setEditingSessionId(null)
+    setEditingTitle('')
+    setActionMenuSessionId(null)
+  }
+
+  const restartConversation = (sessionId: string) => {
+    setChatHistory((prev) =>
+      prev.map((item) =>
+        item.id === sessionId ? { ...item, messages: [], updatedAt: Date.now() } : item
+      )
+    )
+    if (activeChatId === sessionId) {
+      setMessages([])
+    }
+    setActionMenuSessionId(null)
+  }
+
+  const duplicateConversation = (sessionId: string) => {
+    const source = chatHistory.find((item) => item.id === sessionId)
+    if (!source) return
+    const now = Date.now()
+    const duplicate: ChatSession = {
+      id: `chat_${now}`,
+      title: `${source.title} (copy)`,
+      createdAt: now,
+      updatedAt: now,
+      messages: [...source.messages],
+    }
+    setChatHistory((prev) => [duplicate, ...prev].slice(0, 40))
+    setActiveChatId(duplicate.id)
+    setMessages(duplicate.messages)
+    setActionMenuSessionId(null)
+  }
+
+  const deleteConversation = (sessionId: string) => {
+    const remaining = chatHistory.filter((item) => item.id !== sessionId)
+    setChatHistory(remaining)
+    if (editingSessionId === sessionId) {
+      setEditingSessionId(null)
+      setEditingTitle('')
+    }
+    if (actionMenuSessionId === sessionId) {
+      setActionMenuSessionId(null)
+    }
+    if (activeChatId !== sessionId) return
+    if (remaining.length > 0) {
+      setActiveChatId(remaining[0].id)
+      setMessages(remaining[0].messages || [])
+    } else {
+      setActiveChatId(null)
+      setMessages([])
+    }
   }
 
   const handleSubmit = async (question: string) => {
@@ -88,6 +287,18 @@ export default function ChatPage() {
 
     setIsLoading(true)
     const userMessage: Message = { role: 'user', content: question }
+    if (!activeChatId) {
+      const now = Date.now()
+      const newSession: ChatSession = {
+        id: `chat_${now}`,
+        title: question.trim().slice(0, 70),
+        createdAt: now,
+        updatedAt: now,
+        messages: [],
+      }
+      setActiveChatId(newSession.id)
+      setChatHistory((prev) => [newSession, ...prev].slice(0, 40))
+    }
     setMessages((prev) => [...prev, userMessage])
 
     try {
@@ -104,6 +315,8 @@ export default function ChatPage() {
           question,
           context: {
             ...userContext,
+            intent: intentMode,
+            regulation_focus: regulationFocus,
             conversation_history: recentHistory,
           },
         }),
@@ -125,6 +338,7 @@ export default function ChatPage() {
           retrieved_passages: data.retrieved_passages,
           confidence: data.confidence,
           warnings: data.warnings,
+          exploration: data.exploration,
         },
       ])
     } catch (error) {
@@ -149,13 +363,252 @@ export default function ChatPage() {
   }
 
   const clearConversation = () => {
-    setMessages([])
+    startNewConversation()
   }
 
   const [showInfoModal, setShowInfoModal] = useState(false)
 
   return (
     <div className="flex h-full bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {showHistoryPanel && (
+        <aside className="hidden lg:flex w-72 border-r border-blue-200 bg-white/95 backdrop-blur flex-col">
+          <div className="p-4 border-b border-blue-100 flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-800">Chat History</p>
+            <button
+              onClick={startNewConversation}
+              className="text-xs px-2 py-1 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50"
+            >
+              New
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-3 space-y-2">
+            {chatHistory.length === 0 && (
+              <p className="text-xs text-gray-500 px-2 py-3">No saved conversations yet.</p>
+            )}
+            {chatHistory.map((session) => (
+              <div
+                key={session.id}
+                className={`rounded-lg border p-2.5 ${
+                  activeChatId === session.id
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-gray-200 bg-white hover:border-blue-300'
+                }`}
+              >
+                {editingSessionId === session.id ? (
+                  <div className="space-y-2">
+                    <input
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      className="w-full text-xs border border-blue-300 rounded px-2 py-1"
+                      maxLength={90}
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => saveRenameConversation(session.id)}
+                        className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingSessionId(null)
+                          setEditingTitle('')
+                        }}
+                        className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => openConversation(session.id)}
+                      className="w-full text-left"
+                    >
+                      <p className="text-xs font-semibold text-gray-900 truncate">{session.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {new Date(session.updatedAt).toLocaleString()}
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {session.messages.length} messages
+                      </p>
+                    </button>
+                    <div className="mt-2 flex justify-end relative">
+                      <button
+                        onClick={() =>
+                          setActionMenuSessionId((prev) => (prev === session.id ? null : session.id))
+                        }
+                        className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        aria-label="Chat actions"
+                      >
+                        ...
+                      </button>
+                      {actionMenuSessionId === session.id && (
+                        <div className="absolute right-0 top-8 z-20 w-36 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+                          <button
+                            onClick={() => startRenameConversation(session.id)}
+                            className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-gray-50"
+                          >
+                            Rename
+                          </button>
+                          <button
+                            onClick={() => restartConversation(session.id)}
+                            className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-amber-50 text-amber-700"
+                          >
+                            Restart
+                          </button>
+                          <button
+                            onClick={() => duplicateConversation(session.id)}
+                            className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-blue-50 text-blue-700"
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            onClick={() => deleteConversation(session.id)}
+                            className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-red-50 text-red-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
+
+      {showMobileHistoryPanel && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <button
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowMobileHistoryPanel(false)}
+            aria-label="Close chat history"
+          />
+          <aside className="absolute right-0 top-0 h-full w-[85vw] max-w-sm bg-white border-l border-blue-200 shadow-2xl flex flex-col">
+            <div className="p-4 border-b border-blue-100 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-800">Chat History</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={startNewConversation}
+                  className="text-xs px-2 py-1 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  New
+                </button>
+                <button
+                  onClick={() => setShowMobileHistoryPanel(false)}
+                  className="text-xs px-2 py-1 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-3 space-y-2">
+              {chatHistory.length === 0 && (
+                <p className="text-xs text-gray-500 px-2 py-3">No saved conversations yet.</p>
+              )}
+              {chatHistory.map((session) => (
+                <div
+                  key={session.id}
+                  className={`rounded-lg border p-2.5 ${
+                    activeChatId === session.id
+                      ? 'border-blue-400 bg-blue-50'
+                      : 'border-gray-200 bg-white hover:border-blue-300'
+                  }`}
+                >
+                  {editingSessionId === session.id ? (
+                    <div className="space-y-2">
+                      <input
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        className="w-full text-xs border border-blue-300 rounded px-2 py-1"
+                        maxLength={90}
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => saveRenameConversation(session.id)}
+                          className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingSessionId(null)
+                            setEditingTitle('')
+                          }}
+                          className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          openConversation(session.id)
+                          setShowMobileHistoryPanel(false)
+                        }}
+                        className="w-full text-left"
+                      >
+                        <p className="text-xs font-semibold text-gray-900 truncate">{session.title}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {new Date(session.updatedAt).toLocaleString()}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {session.messages.length} messages
+                        </p>
+                      </button>
+                      <div className="mt-2 flex justify-end relative">
+                        <button
+                          onClick={() =>
+                            setActionMenuSessionId((prev) => (prev === session.id ? null : session.id))
+                          }
+                          className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                          aria-label="Chat actions"
+                        >
+                          ...
+                        </button>
+                        {actionMenuSessionId === session.id && (
+                          <div className="absolute right-0 top-8 z-20 w-36 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+                            <button
+                              onClick={() => startRenameConversation(session.id)}
+                              className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-gray-50"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              onClick={() => restartConversation(session.id)}
+                              className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-amber-50 text-amber-700"
+                            >
+                              Restart
+                            </button>
+                            <button
+                              onClick={() => duplicateConversation(session.id)}
+                              className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-blue-50 text-blue-700"
+                            >
+                              Duplicate
+                            </button>
+                            <button
+                              onClick={() => deleteConversation(session.id)}
+                              className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-red-50 text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </aside>
+        </div>
+      )}
       <div className="flex-1 flex flex-col">
         {/* Header with Context and Controls */}
         <div className="border-b-2 border-blue-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 sm:justify-between bg-gradient-to-r from-white to-blue-50 shadow-sm">
@@ -166,7 +619,7 @@ export default function ChatPage() {
               </div>
               <div>
                 <h1 className="font-bold text-gray-900 text-base sm:text-lg">Smart Q&A</h1>
-                <p className="text-xs text-gray-500 hidden sm:block">RAG-powered regulatory assistant</p>
+                <p className="text-xs text-gray-500 hidden sm:block">Guided regulation explorer</p>
               </div>
             </div>
             <button
@@ -182,18 +635,46 @@ export default function ChatPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowMobileHistoryPanel(true)}
+              className="lg:hidden text-xs px-3 py-2 rounded-lg border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 text-gray-700 font-medium transition-all shadow-sm"
+              title="Open chat history"
+            >
+              History
+            </button>
+            <button
+              onClick={() => setShowHistoryPanel((prev) => !prev)}
+              className="hidden lg:inline-flex text-xs px-3 py-2 rounded-lg border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 text-gray-700 font-medium transition-all shadow-sm"
+              title="Open/close chat history"
+            >
+              History
+            </button>
+            <button
+              onClick={() => setShowFiltersPanel((prev) => !prev)}
+              className="text-xs px-3 py-2 rounded-lg border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 text-gray-700 font-medium transition-all shadow-sm"
+              title="Open/close filter menu"
+            >
+              Filters
+            </button>
+            <button
               onClick={() => setShowInfoModal(true)}
               className="text-xs px-3 py-2 rounded-lg border-2 border-blue-300 hover:border-blue-500 hover:bg-blue-50 text-blue-700 font-medium transition-all shadow-sm"
               title="How to use Smart Q&A"
             >
               Info
             </button>
+            <button
+              onClick={startNewConversation}
+              className="text-xs px-3 py-2 rounded-lg border-2 border-gray-300 hover:border-blue-400 hover:bg-blue-50 text-gray-700 font-medium transition-all shadow-sm"
+              title="Start a new chat"
+            >
+              New Chat
+            </button>
             {messages.length > 0 && (
               <button
-                onClick={clearConversation}
-                className="text-xs px-3 py-2 rounded-lg border-2 border-gray-300 hover:border-red-400 hover:bg-red-50 text-gray-700 hover:text-red-700 font-medium transition-all shadow-sm"
+                onClick={() => activeChatId && restartConversation(activeChatId)}
+                className="text-xs px-3 py-2 rounded-lg border-2 border-amber-300 hover:border-amber-500 hover:bg-amber-50 text-amber-700 font-medium transition-all shadow-sm"
               >
-                Clear
+                Restart
               </button>
             )}
             {!hasConfig && (
@@ -206,6 +687,43 @@ export default function ChatPage() {
             )}
           </div>
         </div>
+
+        {showFiltersPanel && (
+        <div className="border-b border-blue-100 px-3 sm:px-6 py-3 bg-white/70">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              {INTENT_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  onClick={() => updateIntentMode(mode.value)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    intentMode === mode.value
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {REGULATION_FOCUSES.map((reg) => (
+                <button
+                  key={reg.value}
+                  onClick={() => updateRegulationFocus(reg.value)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    regulationFocus === reg.value
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+                  }`}
+                >
+                  {reg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        )}
 
         {/* Context Selection Panel */}
         {showContextPanel && (
@@ -269,6 +787,10 @@ export default function ChatPage() {
                   </Link>{' '}
                   to add your OpenRouter, OpenAI, or Anthropic API key.
                 </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Use <strong>Filters</strong> to switch mode (General Q&A, Clarify Article, etc.) and
+                  <strong> History</strong> to reopen earlier conversations.
+                </p>
               </div>
             </div>
           </div>
@@ -277,7 +799,12 @@ export default function ChatPage() {
         {/* Messages Area */}
         <div className="flex-1 overflow-auto p-3 sm:p-6 pb-32 sm:pb-6 space-y-4 bg-transparent">
           {messages.length === 0 ? (
-            <WelcomeScreen hasConfig={hasConfig} onExampleClick={handleExampleClick} />
+            <WelcomeScreen
+              hasConfig={hasConfig}
+              onExampleClick={handleExampleClick}
+              intentMode={intentMode}
+              regulationFocus={regulationFocus}
+            />
           ) : (
             <>
               {messages.map((msg, idx) => (
@@ -285,12 +812,13 @@ export default function ChatPage() {
                   key={idx}
                   message={msg}
                   onSourceClick={setSelectedSource}
+                  onSuggestedQuestion={handleExampleClick}
                 />
               ))}
               {isLoading && (
                 <div className="flex items-center gap-3 p-4 rounded-xl bg-white border-2 border-blue-200 shadow-md">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-3 border-blue-600"></div>
-                  <span className="text-sm font-medium text-gray-700">Analyzing your question and searching regulatory documents...</span>
+                  <span className="text-sm font-medium text-gray-700">Exploring regulations and retrieving relevant articles...</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -304,7 +832,7 @@ export default function ChatPage() {
             onSubmit={handleSubmit}
             isLoading={isLoading}
             placeholder={hasConfig
-              ? "Ask about AI Act, GDPR, or DORA compliance..."
+              ? "Ask an article, obligation, or concept across AI Act / GDPR / DORA..."
               : "Configure API key in Settings to start chatting..."
             }
             disabled={!hasConfig}
@@ -406,6 +934,43 @@ export default function ChatPage() {
               </section>
 
               <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">Filters Menu (New)</h3>
+                <p className="text-gray-700 leading-relaxed mb-3">
+                  Use the <strong>Filters</strong> button to open/close the filter panel and keep the chat area clean.
+                </p>
+                <ul className="space-y-2 text-gray-700">
+                  <li className="flex gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span><strong>General Q&A:</strong> Broad retrieval across regulations.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span><strong>Clarify Article:</strong> Best when you have a specific article number.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span><strong>Find Obligations:</strong> Focuses answers on actionable obligations and duties.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span><strong>Explain Concept:</strong> Better for terms like FRIA, DPIA, GPAI, profiling.</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span><strong>Compare Regulations:</strong> Highlights differences between AI Act, GDPR, and DORA.</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">Chat History (New)</h3>
+                <p className="text-gray-700 leading-relaxed">
+                  Use the <strong>History</strong> button to open/close conversation history. You can reopen, continue,
+                  start a new chat, or delete old chats.
+                </p>
+              </section>
+
+              <section>
                 <h3 className="text-lg font-bold text-gray-900 mb-3">Example Questions</h3>
                 <ul className="space-y-2 text-gray-700">
                   <li className="flex gap-2">
@@ -446,9 +1011,11 @@ export default function ChatPage() {
 interface WelcomeScreenProps {
   hasConfig: boolean
   onExampleClick: (question: string) => void
+  intentMode: ExplorationMeta['intent']
+  regulationFocus: ExplorationMeta['regulation_focus']
 }
 
-function WelcomeScreen({ hasConfig, onExampleClick }: WelcomeScreenProps) {
+function WelcomeScreen({ hasConfig, onExampleClick, intentMode, regulationFocus }: WelcomeScreenProps) {
   const exampleQuestions = [
     {
       category: 'Risk Classification',
@@ -494,12 +1061,12 @@ function WelcomeScreen({ hasConfig, onExampleClick }: WelcomeScreenProps) {
         <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl shadow-xl">
           Q&A
         </div>
-        <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Smart Q&A</h1>
+        <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Regulation Explorer</h1>
         <p className="text-lg text-gray-600 mb-2">
-          Ask questions about EU AI Act, GDPR, and DORA compliance
+          Explore EU AI Act, GDPR, and DORA by article, obligation, and concept
         </p>
         <p className="text-sm text-gray-500">
-          Powered by RAG • 1,149 official documents • Zero hallucinations
+          Guided RAG mode: <span className="font-semibold">{intentMode.replaceAll('_', ' ')}</span> · Scope: <span className="font-semibold">{regulationFocus}</span>
         </p>
       </div>
 
@@ -525,6 +1092,9 @@ function WelcomeScreen({ hasConfig, onExampleClick }: WelcomeScreenProps) {
                   Use Case Analysis
                 </Link>{' '}
                 page which works without any API key!
+              </p>
+              <p className="text-xs text-blue-600 mt-2">
+                Tip: open <strong>Filters</strong> to set intent/scope and <strong>History</strong> to continue past chats.
               </p>
             </div>
           </div>

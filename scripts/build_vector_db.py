@@ -8,7 +8,11 @@ Usage:
     python scripts/build_vector_db.py
 
 Requirements:
-    - PDF files must be in data/ directory:
+    - PDF files must be in one of these layouts:
+      - data/raw/eu-ai-act/AI ACT.pdf
+      - data/raw/gdpr/GDPR.pdf
+      - data/raw/dora/DORA.pdf
+      OR legacy:
       - data/AI ACT.pdf
       - data/GDPR.pdf
       - data/DORA.pdf
@@ -34,19 +38,24 @@ def main():
 
     # Check if PDFs exist
     pdf_dir = Path("data")
-    required_pdfs = ["AI ACT.pdf", "GDPR.pdf", "DORA.pdf"]
+    required_pdf_sets = {
+        "EU AI Act": ["raw/eu-ai-act/AI ACT.pdf", "AI ACT.pdf"],
+        "GDPR": ["raw/gdpr/GDPR.pdf", "GDPR.pdf"],
+        "DORA": ["raw/dora/DORA.pdf", "DORA.pdf"],
+    }
 
-    missing_pdfs = []
-    for pdf in required_pdfs:
-        if not (pdf_dir / pdf).exists():
-            missing_pdfs.append(pdf)
+    missing_groups = []
+    for regulation, candidates in required_pdf_sets.items():
+        if not any((pdf_dir / candidate).exists() for candidate in candidates):
+            missing_groups.append((regulation, candidates))
 
-    if missing_pdfs:
+    if missing_groups:
         print("❌ Error: Missing required PDF files:")
-        for pdf in missing_pdfs:
-            print(f"   - {pdf}")
+        for regulation, candidates in missing_groups:
+            tried = ", ".join(str(pdf_dir / c) for c in candidates)
+            print(f"   - {regulation} (tried: {tried})")
         print()
-        print("Please ensure all PDFs are in the data/ directory.")
+        print("Please ensure all PDFs exist under data/raw/... (or legacy data/ root).")
         sys.exit(1)
 
     print("✅ Found all required PDFs")

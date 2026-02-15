@@ -24,6 +24,11 @@ const NAV_ITEMS = [
     label: 'Settings',
     description: 'Configure API keys'
   },
+  {
+    href: '/contrib',
+    label: 'Contributions',
+    description: 'Preview community proposals'
+  },
 ]
 
 export function Sidebar() {

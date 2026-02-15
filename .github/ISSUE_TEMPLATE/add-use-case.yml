@@ -1,0 +1,32 @@
+name: Add AI use case
+about: Propose a new AI use case contribution
+labels: ["contribution", "use-case"]
+body:
+  - type: input
+    id: title
+    attributes:
+      label: Use case title
+      placeholder: e.g., SME loan fraud scoring
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the use case and decision impact.
+    validations:
+      required: true
+  - type: textarea
+    id: legal_basis
+    attributes:
+      label: Legal basis
+      description: Cite relevant AI Act / GDPR / DORA articles.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Official sources
+      description: Paste official links (EUR-Lex, EDPB, ESAs, etc.).
+    validations:
+      required: true

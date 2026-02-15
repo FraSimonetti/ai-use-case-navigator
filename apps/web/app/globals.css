@@ -4,3 +4,16 @@ html,
 body {
   height: 100%;
 }
+
+/* Print styles for PDF export */
+@media print {
+  nav, [data-print-hidden] {
+    display: none !important;
+  }
+  body {
+    font-size: 12px;
+  }
+  main {
+    overflow: visible !important;
+  }
+}

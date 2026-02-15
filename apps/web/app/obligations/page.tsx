@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -14,7 +14,14 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { TimelineView } from '@/components/obligations/timeline-view'
+import { ValidationBadge } from '@/components/obligations/validation-badge'
 import { getLLMHeaders, hasLLMConfig } from '@/lib/llm-config'
+import {
+  AlertTriangleIcon, CheckCircleIcon, ClipboardListIcon, EditIcon,
+  DownloadIcon, ScaleIcon, PinIcon, FilterIcon, SaveIcon, XIcon,
+  InfoIcon, ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon,
+  FileTextIcon, CalendarIcon,
+} from '@/components/icons'
 
 // Direct article links - using specialized websites with article-level navigation
 const ARTICLE_BASES = {
@@ -676,6 +683,12 @@ export default function ObligationsPage() {
   const [showExemptions, setShowExemptions] = useState(false)
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [modifyingUseCase, setModifyingUseCase] = useState<typeof USE_CASES[0] | null>(null)
+  // Filter/sort for obligation results
+  const [filterRegulation, setFilterRegulation] = useState<string>('all')
+  const [filterSeverity, setFilterSeverity] = useState<string>('all')
+  // Progressive disclosure sections
+  const [showDoraGpai, setShowDoraGpai] = useState(false)
+  const [showSectoral, setShowSectoral] = useState(false)
 
   const filteredUseCases = USE_CASES.filter((uc) => {
     const matchesCategory = !selectedCategory || uc.category === selectedCategory
@@ -788,13 +801,78 @@ export default function ObligationsPage() {
   const allObligations = getAllObligations()
   const selectedUseCase = USE_CASES.find(u => u.value === formData.use_case)
 
+  // Filtered obligations for the "all" view
+  const filteredObligations = allObligations.filter(ob => {
+    if (filterRegulation !== 'all') {
+      if (filterRegulation === 'ai_act' && ob.source_regulation !== 'eu_ai_act') return false
+      if (filterRegulation === 'gdpr' && ob.source_regulation !== 'gdpr') return false
+      if (filterRegulation === 'dora' && ob.source_regulation !== 'dora') return false
+      if (filterRegulation === 'gpai' && ob.source_regulation !== 'gpai') return false
+    }
+    if (filterSeverity !== 'all' && ob.priority !== filterSeverity) return false
+    return true
+  })
+
+  const saveAnalysis = () => {
+    if (!results || !selectedUseCase) return
+    const entry = {
+      id: `${Date.now()}`,
+      name: selectedUseCase.label,
+      use_case: selectedUseCase.value,
+      risk_classification: results.risk_classification || 'unknown',
+      total_obligations: allObligations.length,
+      timestamp: new Date().toISOString(),
+      formData: { ...formData },
+      results: results,
+    }
+    try {
+      const existing = JSON.parse(localStorage.getItem('regolai_saved_analyses') || '[]')
+      // Replace if same use_case + institution already saved
+      const filtered = existing.filter((e: any) => !(e.use_case === entry.use_case && e.formData?.institution_type === entry.formData.institution_type))
+      filtered.unshift(entry)
+      localStorage.setItem('regolai_saved_analyses', JSON.stringify(filtered.slice(0, 50)))
+    } catch {}
+  }
+
+  // Load saved analysis for editing
+  const loadSavedAnalysis = useCallback((analysisId: string) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('regolai_saved_analyses') || '[]')
+      const analysis = saved.find((a: any) => a.id === analysisId)
+      if (analysis?.formData) {
+        setFormData(analysis.formData)
+        if (analysis.results) {
+          setResults(analysis.results)
+        }
+      }
+    } catch {}
+  }, [])
+
+  // Check URL for edit param on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const editId = params.get('edit')
+    if (editId) {
+      loadSavedAnalysis(editId)
+      // Clean URL
+      window.history.replaceState({}, '', '/obligations')
+    }
+  }, [loadSavedAnalysis])
+
+  const handleExportPDF = () => {
+    window.print()
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-4 flex items-start justify-between">
         <div className="flex-1">
           <h1 className="text-2xl font-bold mb-2">Use Case Analysis</h1>
-          <p className="text-gray-600">Comprehensive regulatory mapping for EU AI Act, GDPR, DORA, GPAI, and sectoral regulations. {USE_CASES.length} use cases mapped.</p>
+          <p className="text-gray-600">
+            Determine AI Act risk classification first, then surface additional obligations (GDPR, DORA, GPAI, sectoral).
+            {` ${USE_CASES.length}`} mapped use cases available.
+          </p>
         </div>
         <button
           onClick={() => setShowInfoModal(true)}
@@ -807,20 +885,20 @@ export default function ObligationsPage() {
 
       {/* Legal Disclaimer */}
       <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-        <p className="font-semibold text-amber-800 mb-1">⚖️ Important Disclaimer</p>
+        <p className="font-semibold text-amber-800 mb-1 flex items-center gap-1.5"><ScaleIcon className="w-4 h-4" /> Important Disclaimer</p>
         <p className="text-amber-700">
           This tool provides regulatory guidance based on EU AI Act (Regulation 2024/1689), GDPR, and DORA. 
           It does not constitute legal advice. Always consult your legal/compliance team.
         </p>
         <div className="mt-2 flex gap-2 flex-wrap">
           <a href={EURLEX_LINKS.ai_act} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">
-            📜 AI Act Full Text (EUR-Lex)
+            AI Act Full Text (EUR-Lex)
           </a>
           <a href={EURLEX_LINKS.gdpr} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">
-            📜 GDPR Full Text
+            GDPR Full Text
           </a>
           <a href={EURLEX_LINKS.dora} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">
-            📜 DORA Full Text
+            DORA Full Text
           </a>
         </div>
       </div>
@@ -867,10 +945,10 @@ export default function ObligationsPage() {
           {/* Tabs - simplified to just predefined and custom */}
           <div className="flex gap-2 mb-4 flex-wrap">
             <Button variant={activeTab === 'predefined' ? 'default' : 'outline'} onClick={() => { setActiveTab('predefined'); setModifyingUseCase(null); }} className="text-sm">
-              📋 Choose from List ({USE_CASES.length})
+              <ClipboardListIcon className="w-4 h-4 inline mr-1" /> Choose from List ({USE_CASES.length})
             </Button>
             <Button variant={activeTab === 'custom' ? 'default' : 'outline'} onClick={() => { setActiveTab('custom'); setModifyingUseCase(null); }} className="text-sm">
-              🆕 Describe Custom Use Case
+              Describe Custom Use Case
             </Button>
           </div>
 
@@ -931,7 +1009,7 @@ export default function ObligationsPage() {
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{uc.description}</p>
                       {uc.annex_ref && (
-                        <p className="text-xs text-blue-600 mt-1">📌 {uc.annex_ref}</p>
+                        <p className="text-xs text-blue-600 mt-1 flex items-center gap-1"><PinIcon className="w-3 h-3" /> {uc.annex_ref}</p>
                       )}
                     </div>
                     {/* Modify Button */}
@@ -944,7 +1022,7 @@ export default function ObligationsPage() {
                         setModifyDescription('')
                       }}
                     >
-                      ✏️ Modify
+                      <EditIcon className="w-3 h-3 inline mr-0.5" /> Modify
                     </button>
                   </div>
                 ))}
@@ -1028,7 +1106,7 @@ export default function ObligationsPage() {
           <Card className="mb-4 border-2 border-blue-300 bg-blue-50">
             <CardHeader className="pb-2">
               <CardTitle className="text-base text-blue-900 flex items-center gap-2">
-                ⚖️ Context Assessment — {selectedUseCase.label}
+                <ScaleIcon className="w-5 h-5" /> Context Assessment — {selectedUseCase.label}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1077,14 +1155,24 @@ export default function ObligationsPage() {
       {/* Step 3: Context Filters */}
       <Card className="mb-4">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>Step 3: Regulatory Context</span>
-            <Button variant="outline" onClick={() => setShowAdvancedFilters(!showAdvancedFilters)} className="text-xs">
-              {showAdvancedFilters ? 'Hide Advanced' : 'Show Advanced'} ▼
-            </Button>
-          </CardTitle>
+          <CardTitle className="text-base">Step 3: Regulatory Context & Obligation Scope</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg border border-red-200 bg-red-50">
+              <p className="text-xs font-semibold text-red-800 uppercase tracking-wide mb-1">Changes AI Act Risk Classification</p>
+              <p className="text-sm text-red-900">
+                Use the core flags and Art. 6(3) exemptions below to determine if your use case is High-Risk, Limited, or Minimal Risk under the EU AI Act.
+              </p>
+            </div>
+            <div className="p-3 rounded-lg border border-indigo-200 bg-indigo-50">
+              <p className="text-xs font-semibold text-indigo-800 uppercase tracking-wide mb-1">Adds Extra Obligations</p>
+              <p className="text-sm text-indigo-900">
+                DORA, GPAI, and sectoral options primarily add additional obligation sets. They usually do not override the base AI Act risk class.
+              </p>
+            </div>
+          </div>
+
           {/* Core GDPR/AI Act Factors */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
             <label className="flex items-start gap-2 text-sm p-2 border rounded hover:bg-gray-50">
@@ -1178,69 +1266,107 @@ export default function ObligationsPage() {
             )}
           </div>
 
-          {/* Advanced Filters */}
-          {showAdvancedFilters && (
-            <div className="border-t pt-4">
-              <p className="text-sm font-medium mb-2">Advanced Context (GDPR/DORA specific)</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.cross_border_processing} onCheckedChange={(c) => setFormData({ ...formData, cross_border_processing: !!c })} />
-                  Cross-border processing (GDPR Art. 56)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.large_scale_processing} onCheckedChange={(c) => setFormData({ ...formData, large_scale_processing: !!c })} />
-                  Large-scale processing (DPIA trigger)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.systematic_monitoring} onCheckedChange={(c) => setFormData({ ...formData, systematic_monitoring: !!c })} />
-                  Systematic monitoring (DPIA trigger)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.vulnerable_groups} onCheckedChange={(c) => setFormData({ ...formData, vulnerable_groups: !!c })} />
-                  Affects vulnerable groups
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.safety_component} onCheckedChange={(c) => setFormData({ ...formData, safety_component: !!c })} />
-                  Safety component (Art. 6(1))
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.real_time_processing} onCheckedChange={(c) => setFormData({ ...formData, real_time_processing: !!c })} />
-                  Real-time processing
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.life_health_insurance} onCheckedChange={(c) => setFormData({ ...formData, life_health_insurance: !!c })} />
-                  Life/health insurance (Annex III 5c)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.critical_ict_service} onCheckedChange={(c) => setFormData({ ...formData, critical_ict_service: !!c })} />
-                  Critical ICT service (DORA Art. 28)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.outsourced_to_cloud} onCheckedChange={(c) => setFormData({ ...formData, outsourced_to_cloud: !!c })} />
-                  Outsourced to cloud
-                </label>
+          {/* Advanced AI Act Context (collapsible) */}
+          <div className="border-t pt-3 mt-3">
+            <button
+              className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 w-full"
+              onClick={() => setShowDoraGpai(!showDoraGpai)}
+            >
+              {showDoraGpai ? <ChevronDownIcon className="w-4 h-4" /> : <ChevronRightIcon className="w-4 h-4" />}
+              Advanced AI Act Context (edge cases)
+              <span className="text-xs text-gray-400 font-normal ml-1">(Art. 6(1), Annex III, vulnerability/safety factors)</span>
+            </button>
+            {showDoraGpai && (
+              <div className="mt-3 space-y-4">
+                <p className="text-xs text-gray-600">
+                  Select only if applicable. These flags can affect edge-case classification logic and explanatory warnings.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.cross_border_processing} onCheckedChange={(c) => setFormData({ ...formData, cross_border_processing: !!c })} />
+                    Cross-border processing
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.large_scale_processing} onCheckedChange={(c) => setFormData({ ...formData, large_scale_processing: !!c })} />
+                    Large-scale processing
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.systematic_monitoring} onCheckedChange={(c) => setFormData({ ...formData, systematic_monitoring: !!c })} />
+                    Systematic monitoring
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.vulnerable_groups} onCheckedChange={(c) => setFormData({ ...formData, vulnerable_groups: !!c })} />
+                    Affects vulnerable groups
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.safety_component} onCheckedChange={(c) => setFormData({ ...formData, safety_component: !!c })} />
+                    Safety component (Art. 6(1))
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.real_time_processing} onCheckedChange={(c) => setFormData({ ...formData, real_time_processing: !!c })} />
+                    Real-time processing
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.life_health_insurance} onCheckedChange={(c) => setFormData({ ...formData, life_health_insurance: !!c })} />
+                    Life/health insurance (Annex III 5c)
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* DORA & GPAI obligations context */}
+          <div className="border-t pt-3 mt-3">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+              DORA & GPAI Context (adds obligations, does not usually change AI Act risk class)
+            </p>
+            <div className="space-y-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+              <div>
+                <p className="text-xs font-semibold text-indigo-900 mb-2">DORA (ICT third-party and resilience scope)</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.critical_ict_service} onCheckedChange={(c) => setFormData({ ...formData, critical_ict_service: !!c })} />
+                    Critical ICT service (DORA Art. 28)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.outsourced_to_cloud} onCheckedChange={(c) => setFormData({ ...formData, outsourced_to_cloud: !!c })} />
+                    Outsourced to cloud
+                  </label>
+                </div>
               </div>
 
-              {/* GPAI (Foundation Models) Context */}
-              <p className="text-sm font-medium mb-2 mt-4">GPAI / Foundation Models (Art. 51-56)</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.uses_gpai_model} onCheckedChange={(c) => setFormData({ ...formData, uses_gpai_model: !!c })} />
-                  Uses GPAI (GPT-4, Claude, etc.)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.gpai_with_systemic_risk} onCheckedChange={(c) => setFormData({ ...formData, gpai_with_systemic_risk: !!c })} />
-                  GPAI with systemic risk (&gt;10^25 FLOPs)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={formData.fine_tuned_gpai} onCheckedChange={(c) => setFormData({ ...formData, fine_tuned_gpai: !!c })} />
-                  Fine-tuned GPAI model
-                </label>
+              <div>
+                <p className="text-xs font-semibold text-indigo-900 mb-2">GPAI / Foundation Models (AI Act Art. 51-56)</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.uses_gpai_model} onCheckedChange={(c) => setFormData({ ...formData, uses_gpai_model: !!c })} />
+                    Uses GPAI (GPT-4, Claude, etc.)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.gpai_with_systemic_risk} onCheckedChange={(c) => setFormData({ ...formData, gpai_with_systemic_risk: !!c })} />
+                    GPAI with systemic risk (&gt;10^25 FLOPs)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={formData.fine_tuned_gpai} onCheckedChange={(c) => setFormData({ ...formData, fine_tuned_gpai: !!c })} />
+                    Fine-tuned GPAI model
+                  </label>
+                </div>
               </div>
+            </div>
+          </div>
 
-              {/* Sectoral Regulation Triggers */}
-              <p className="text-sm font-medium mb-2 mt-4">Sectoral Regulation Triggers</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {/* Sectoral Regulation Triggers (collapsible) */}
+          <div className="border-t pt-3 mt-3">
+            <button
+              className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 w-full"
+              onClick={() => setShowSectoral(!showSectoral)}
+            >
+              {showSectoral ? <ChevronDownIcon className="w-4 h-4" /> : <ChevronRightIcon className="w-4 h-4" />}
+              Sectoral Regulation Triggers
+              <span className="text-xs text-gray-400 font-normal ml-1">(MiFID II, PSD2, AMLD6)</span>
+            </button>
+            {showSectoral && (
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox checked={formData.provides_investment_advice} onCheckedChange={(c) => setFormData({ ...formData, provides_investment_advice: !!c })} />
                   Investment advice (MiFID II)
@@ -1254,8 +1380,8 @@ export default function ObligationsPage() {
                   AML/KYC obligations (AMLD6)
                 </label>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <Button onClick={handleSubmit} disabled={isLoading || !formData.use_case} className="mt-4">
             {isLoading ? 'Finding Obligations...' : 'Find All Obligations'}
@@ -1279,7 +1405,7 @@ export default function ObligationsPage() {
             {customResults.ai_analysis && <p className="text-sm bg-blue-50 p-3 rounded">{customResults.ai_analysis}</p>}
             {customResults.warnings?.length > 0 && (
               <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-                <p className="font-medium text-yellow-800 text-sm mb-1">⚠️ Warnings</p>
+                <p className="font-medium text-yellow-800 text-sm mb-1 flex items-center gap-1"><AlertTriangleIcon className="w-4 h-4" /> Warnings</p>
                 <ul className="text-sm text-yellow-700 list-disc pl-4">
                   {customResults.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
                 </ul>
@@ -1301,7 +1427,12 @@ export default function ObligationsPage() {
 
       {/* Results */}
       {results && (
-        <div className="space-y-4">
+        <div className="space-y-4 print:space-y-2" id="results-section">
+          {/* Validation Badge */}
+          {results.validation && (
+            <ValidationBadge validation={results.validation} />
+          )}
+
           {/* Summary Card */}
           <Card className="bg-gradient-to-r from-blue-50 to-indigo-50">
             <CardContent className="py-4">
@@ -1347,6 +1478,15 @@ export default function ObligationsPage() {
                   </div>
                 </div>
               </div>
+              {/* Action buttons */}
+              <div className="flex gap-2 mt-3 pt-3 border-t border-blue-200 print:hidden">
+                <Button variant="outline" onClick={handleExportPDF} className="text-xs">
+                  <DownloadIcon className="w-3.5 h-3.5 mr-1" /> Export PDF
+                </Button>
+                <Button variant="outline" onClick={saveAnalysis} className="text-xs">
+                  <SaveIcon className="w-3.5 h-3.5 mr-1" /> Save Analysis
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -1372,7 +1512,7 @@ export default function ObligationsPage() {
           {results.warnings?.length > 0 && (
             <Card className="border-yellow-300 bg-yellow-50">
               <CardContent className="py-3">
-                <p className="font-medium text-yellow-800 text-sm mb-1">⚠️ Important Considerations</p>
+                <p className="font-medium text-yellow-800 text-sm mb-1 flex items-center gap-1"><AlertTriangleIcon className="w-4 h-4" /> Important Considerations</p>
                 <ul className="text-sm text-yellow-700 space-y-1">
                   {results.warnings.map((w: string, i: number) => <li key={i}>• {w}</li>)}
                 </ul>
@@ -1380,21 +1520,49 @@ export default function ObligationsPage() {
             </Card>
           )}
 
-          {/* View Toggle */}
-          <div className="flex gap-2">
+          {/* View Toggle & Filters */}
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
             <Button variant={viewMode === 'all' ? 'default' : 'outline'} onClick={() => setViewMode('all')} className="text-sm">
               All Obligations ({allObligations.length})
             </Button>
             <Button variant={viewMode === 'by_regulation' ? 'default' : 'outline'} onClick={() => setViewMode('by_regulation')} className="text-sm">
               By Regulation
             </Button>
+            {viewMode === 'all' && (
+              <>
+                <span className="text-gray-300 mx-1">|</span>
+                <FilterIcon className="w-4 h-4 text-gray-400" />
+                <select
+                  value={filterRegulation}
+                  onChange={(e) => setFilterRegulation(e.target.value)}
+                  className="text-xs border rounded px-2 py-1"
+                >
+                  <option value="all">All Regulations</option>
+                  <option value="ai_act">AI Act</option>
+                  <option value="gdpr">GDPR</option>
+                  <option value="dora">DORA</option>
+                  <option value="gpai">GPAI</option>
+                </select>
+                <select
+                  value={filterSeverity}
+                  onChange={(e) => setFilterSeverity(e.target.value)}
+                  className="text-xs border rounded px-2 py-1"
+                >
+                  <option value="all">All Priorities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </>
+            )}
           </div>
 
           {/* All Obligations View */}
           {viewMode === 'all' && (
             <div className="space-y-2">
-              <p className="text-sm text-gray-500 mb-2">Showing all {allObligations.length} obligations, sorted by priority:</p>
-              {allObligations
+              <p className="text-sm text-gray-500 mb-2">Showing {filteredObligations.length} of {allObligations.length} obligations, sorted by priority:</p>
+              {filteredObligations
                 .sort((a, b) => {
                   const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
                   return (order[a.priority || 'low'] || 4) - (order[b.priority || 'low'] || 4)
@@ -1413,7 +1581,7 @@ export default function ObligationsPage() {
                 <div className="bg-blue-600 text-white px-3 py-2 rounded-t-lg font-bold text-sm flex justify-between items-center">
                   <span>EU AI ACT ({results.ai_act_obligations?.length || 0})</span>
                   <a href={EURLEX_LINKS.ai_act} target="_blank" rel="noopener noreferrer" className="text-white hover:underline text-xs">
-                    📜 EUR-Lex
+                    EUR-Lex
                   </a>
                 </div>
                 <div className="border border-t-0 rounded-b-lg p-2 space-y-2 max-h-[600px] overflow-y-auto">
@@ -1430,7 +1598,7 @@ export default function ObligationsPage() {
                 <div className="bg-green-600 text-white px-3 py-2 rounded-t-lg font-bold text-sm flex justify-between items-center">
                   <span>GDPR ({results.gdpr_obligations?.length || 0})</span>
                   <a href={EURLEX_LINKS.gdpr} target="_blank" rel="noopener noreferrer" className="text-white hover:underline text-xs">
-                    📜 EUR-Lex
+                    EUR-Lex
                   </a>
                 </div>
                 <div className="border border-t-0 rounded-b-lg p-2 space-y-2 max-h-[600px] overflow-y-auto">
@@ -1447,7 +1615,7 @@ export default function ObligationsPage() {
                 <div className="bg-orange-600 text-white px-3 py-2 rounded-t-lg font-bold text-sm flex justify-between items-center">
                   <span>DORA ({results.dora_obligations?.length || 0})</span>
                   <a href={EURLEX_LINKS.dora} target="_blank" rel="noopener noreferrer" className="text-white hover:underline text-xs">
-                    📜 EUR-Lex
+                    EUR-Lex
                   </a>
                 </div>
                 <div className="border border-t-0 rounded-b-lg p-2 space-y-2 max-h-[600px] overflow-y-auto">
@@ -1504,16 +1672,17 @@ export default function ObligationsPage() {
 
       {/* Info Modal */}
       {showInfoModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInfoModal(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInfoModal(false)} role="dialog" aria-modal="true" aria-label="How Use Case Analysis Works">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">How to Use Case Analysis Works</h2>
+                <h2 className="text-2xl font-bold">How Use Case Analysis Works</h2>
                 <button
                   onClick={() => setShowInfoModal(false)}
-                  className="text-white hover:bg-white/20 rounded-lg px-3 py-1 transition-colors"
+                  className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                  aria-label="Close"
                 >
-                  Close
+                  <XIcon className="w-5 h-5" />
                 </button>
               </div>
             </div>
@@ -1541,7 +1710,7 @@ export default function ObligationsPage() {
                   <li className="flex gap-3">
                     <span className="font-bold text-indigo-600">2.</span>
                     <div>
-                      <strong>Choose Your Use Case:</strong> Select from 173 pre-mapped use cases across 11 categories,
+                      <strong>Choose Your Use Case:</strong> Select from {USE_CASES.length} pre-mapped use cases across 11 categories,
                       or describe your own custom use case for AI-powered analysis.
                     </div>
                   </li>
@@ -1549,8 +1718,8 @@ export default function ObligationsPage() {
                     <span className="font-bold text-indigo-600">3.</span>
                     <div>
                       <strong>Set Context Filters:</strong> Specify important factors like whether the AI affects natural persons,
-                      is fully automated, denies service access, or processes special category data. These factors determine
-                      the final risk classification.
+                      is fully automated, denies service access, or processes special category data. These are the primary
+                      factors that determine AI Act risk classification.
                     </div>
                   </li>
                   <li className="flex gap-3">
@@ -1561,6 +1730,22 @@ export default function ObligationsPage() {
                     </div>
                   </li>
                 </ol>
+              </section>
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-900 mb-3">DORA, GPAI, and Advanced Context: What to Select</h3>
+                <div className="space-y-3 text-gray-700 text-sm">
+                  <div className="p-3 rounded-lg border border-red-200 bg-red-50">
+                    <p><strong>Core + Art. 6(3) filters:</strong> use these to determine the AI Act risk class.</p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-indigo-200 bg-indigo-50">
+                    <p><strong>DORA and GPAI filters:</strong> use these to add extra obligation sets (ICT resilience, GPAI duties).</p>
+                    <p className="mt-1">They generally do <strong>not</strong> change the base AI Act risk class by themselves.</p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-gray-200 bg-gray-50">
+                    <p><strong>When unsure:</strong> leave DORA/GPAI unchecked, run the analysis once, then enable only the flags that clearly apply to your operating model.</p>
+                  </div>
+                </div>
               </section>
 
               <section>
@@ -1758,7 +1943,7 @@ function ObligationItem({
           <span className="text-xs text-gray-400">+{(obligation.source_articles?.length || 0) - 4}</span>
         )}
         {obligation.deadline && (
-          <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">📅 {obligation.deadline}</span>
+          <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><CalendarIcon className="w-3 h-3" /> {obligation.deadline}</span>
         )}
       </div>
 
@@ -1768,7 +1953,7 @@ function ObligationItem({
           {/* What it means */}
           {obligation.what_it_means && (
             <div className="bg-blue-50 p-2 rounded">
-              <p className="font-medium text-blue-800 text-xs mb-1">💡 What This Means</p>
+              <p className="font-medium text-blue-800 text-xs mb-1 flex items-center gap-1"><InfoIcon className="w-3.5 h-3.5" /> What This Means</p>
               <p className="text-blue-900 text-xs">{obligation.what_it_means}</p>
             </div>
           )}
@@ -1776,7 +1961,7 @@ function ObligationItem({
           {/* Action Items */}
           {obligation.action_items && obligation.action_items.length > 0 && (
             <div>
-              <p className="font-medium text-xs mb-1">✅ Action Items</p>
+              <p className="font-medium text-xs mb-1 flex items-center gap-1"><CheckCircleIcon className="w-3.5 h-3.5 text-green-600" /> Action Items</p>
               <ul className="text-xs space-y-0.5">
                 {obligation.action_items.map((item, i) => (
                   <li key={i} className="flex items-start gap-1">
@@ -1791,7 +1976,7 @@ function ObligationItem({
           {/* Implementation Steps */}
           {obligation.implementation_steps && obligation.implementation_steps.length > 0 && (
             <details className="group">
-              <summary className="font-medium text-xs cursor-pointer">📋 Implementation Steps</summary>
+              <summary className="font-medium text-xs cursor-pointer flex items-center gap-1"><ClipboardListIcon className="w-3.5 h-3.5 text-gray-500" /> Implementation Steps</summary>
               <div className="mt-1 text-xs space-y-0.5 pl-3 border-l-2 border-green-300">
                 {obligation.implementation_steps.map((step, i) => <p key={i}>{step}</p>)}
               </div>
@@ -1801,7 +1986,7 @@ function ObligationItem({
           {/* Evidence Required */}
           {obligation.evidence_required && obligation.evidence_required.length > 0 && (
             <details className="group">
-              <summary className="font-medium text-xs cursor-pointer">📁 Documentation Required</summary>
+              <summary className="font-medium text-xs cursor-pointer flex items-center gap-1"><FileTextIcon className="w-3.5 h-3.5 text-gray-500" /> Documentation Required</summary>
               <ul className="mt-1 text-xs space-y-0.5">
                 {obligation.evidence_required.map((item, i) => (
                   <li key={i} className="flex items-start gap-1"><span className="text-green-500">✓</span>{item}</li>
@@ -1813,7 +1998,7 @@ function ObligationItem({
           {/* Pitfalls */}
           {obligation.common_pitfalls && obligation.common_pitfalls.length > 0 && (
             <details className="group">
-              <summary className="font-medium text-xs cursor-pointer text-red-700">⚠️ Common Mistakes</summary>
+              <summary className="font-medium text-xs cursor-pointer text-red-700 flex items-center gap-1"><AlertTriangleIcon className="w-3.5 h-3.5" /> Common Mistakes</summary>
               <ul className="mt-1 text-xs space-y-0.5 bg-red-50 p-2 rounded">
                 {obligation.common_pitfalls.map((item, i) => (
                   <li key={i} className="flex items-start gap-1 text-red-700"><span>✗</span>{item}</li>
@@ -1825,7 +2010,7 @@ function ObligationItem({
           {/* Legal Basis */}
           {obligation.legal_basis && (
             <details className="group">
-              <summary className="font-medium text-xs cursor-pointer">⚖️ Legal Text</summary>
+              <summary className="font-medium text-xs cursor-pointer flex items-center gap-1"><ScaleIcon className="w-3.5 h-3.5 text-gray-500" /> Legal Text</summary>
               <p className="mt-1 text-xs text-gray-600 italic bg-gray-50 p-2 rounded">"{obligation.legal_basis}"</p>
             </details>
           )}
@@ -1833,7 +2018,7 @@ function ObligationItem({
           {/* Penalties */}
           {obligation.penalties && (
             <div className="bg-red-50 p-2 rounded flex items-center gap-2">
-              <span>💰</span>
+              <AlertTriangleIcon className="w-3.5 h-3.5 text-red-600 shrink-0" />
               <span className="text-xs text-red-700"><strong>Penalty:</strong> {obligation.penalties}</span>
             </div>
           )}
@@ -1846,7 +2031,7 @@ function ObligationItem({
               rel="noopener noreferrer"
               className="text-xs text-blue-600 hover:underline flex items-center gap-1"
             >
-              📜 View full regulation on EUR-Lex ↗
+              <ExternalLinkIcon className="w-3 h-3 inline" /> View full regulation on EUR-Lex
             </a>
           </div>
         </div>

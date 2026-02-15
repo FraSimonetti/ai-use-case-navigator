@@ -1,0 +1,21 @@
+{
+  "id": "customer-onboarding-fraud-screening",
+  "title": "Customer onboarding fraud screening",
+  "category": "risk_compliance",
+  "risk_classification": "context_dependent",
+  "summary": "AI model that flags onboarding applications for potential identity or document fraud.",
+  "legal_basis": [
+    "EU AI Act Art. 6(3)",
+    "EU AI Act Annex III point 5(b)",
+    "GDPR Art. 22"
+  ],
+  "annex_references": [
+    "Annex III point 5(b)"
+  ],
+  "obligations_notes": "High-risk if the system can deny service access automatically; lower risk if advisory with human review.",
+  "source_urls": [
+    "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689",
+    "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32016R0679"
+  ],
+  "maintainer_notes": "Indicate whether output is advisory only or final decision signal."
+}

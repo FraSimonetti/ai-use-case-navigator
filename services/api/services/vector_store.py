@@ -373,6 +373,9 @@ class VectorStore:
 
         self.documents: List[Document] = []
         self.embeddings: Optional[np.ndarray] = None
+        self.model = None
+        self.vectorizer = None
+        self._encoder_load_attempted = False
 
         # EUR-Lex base URLs
         self.eurlex_urls = {
@@ -383,24 +386,59 @@ class VectorStore:
 
         self._load_from_disk()
 
+    def _ensure_query_encoder(self) -> bool:
+        """
+        Ensure we have a query encoder available at retrieval time.
+
+        Priority:
+        1. Loaded sentence-transformers model
+        2. Loaded TF-IDF vectorizer
+        3. Lazy-load sentence-transformers model matching stored embeddings
+        """
+        if self.model is not None:
+            return True
+        if self.vectorizer is not None:
+            return True
+        if self._encoder_load_attempted:
+            return False
+
+        self._encoder_load_attempted = True
+        try:
+            from sentence_transformers import SentenceTransformer
+            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+            print("Loaded sentence-transformers query encoder: all-MiniLM-L6-v2")
+            return True
+        except Exception as e:
+            print(f"⚠️  Warning: unable to load sentence-transformers query encoder: {e}")
+            return False
+
     # ── Public API ──────────────────────────────────────────────────────────
 
     def parse_and_index_pdfs(self, pdf_dir: str = "data") -> None:
         """Parse regulation PDFs and build enriched vector embeddings."""
         pdf_dir_path = Path(pdf_dir)
 
-        regulations = {
-            "AI ACT.pdf": "EU AI Act",
-            "GDPR.pdf":   "GDPR",
-            "DORA.pdf":   "DORA",
-        }
+        regulations = [
+            ("EU AI Act", ["AI ACT.pdf", "raw/eu-ai-act/AI ACT.pdf"]),
+            ("GDPR", ["GDPR.pdf", "raw/gdpr/GDPR.pdf"]),
+            ("DORA", ["DORA.pdf", "raw/dora/DORA.pdf"]),
+        ]
 
         self.documents = []
 
-        for pdf_file, regulation_name in regulations.items():
-            pdf_path = pdf_dir_path / pdf_file
-            if not pdf_path.exists():
-                print(f"Warning: {pdf_file} not found at {pdf_path}")
+        for regulation_name, candidate_paths in regulations:
+            pdf_path = None
+            for candidate in candidate_paths:
+                candidate_path = pdf_dir_path / candidate
+                if candidate_path.exists():
+                    pdf_path = candidate_path
+                    break
+
+            if pdf_path is None:
+                print(
+                    f"Warning: no PDF found for {regulation_name}. "
+                    f"Tried: {', '.join(str(pdf_dir_path / c) for c in candidate_paths)}"
+                )
                 continue
 
             print(f"Parsing {regulation_name}...")
@@ -410,6 +448,7 @@ class VectorStore:
 
         print(f"\nTotal documents indexed: {len(self.documents)}")
         self._generate_embeddings()
+        self._init_bm25()
         self._save_to_disk()
 
     def retrieve(
@@ -432,16 +471,28 @@ class VectorStore:
             return []
 
         # Encode query
-        if hasattr(self, "model"):
+        if not self._ensure_query_encoder():
+            return []
+
+        if self.model is not None:
             query_embedding = self.model.encode([query], convert_to_numpy=True)[0]
-        elif hasattr(self, "vectorizer"):
+        elif self.vectorizer is not None:
             query_embedding = self.vectorizer.transform([query]).toarray()[0]
         else:
             return []
 
         # Base cosine similarity
         norms = np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding) + 1e-10
-        scores = np.dot(self.embeddings, query_embedding) / norms
+        semantic_scores = np.dot(self.embeddings, query_embedding) / norms
+
+        # Hybrid BM25 + semantic scoring (0.6 semantic + 0.4 BM25)
+        if getattr(self, "bm25", None) is not None:
+            bm25_raw = np.array(self.bm25.get_scores(query.lower().split()), dtype=float)
+            bm25_max = bm25_raw.max()
+            bm25_norm = bm25_raw / bm25_max if bm25_max > 0 else bm25_raw
+            scores = 0.6 * semantic_scores + 0.4 * bm25_norm
+        else:
+            scores = semantic_scores
 
         query_lower = query.lower()
 
@@ -457,7 +508,8 @@ class VectorStore:
         }
 
         # Pre-extract article number(s) from query for exact-article boost
-        article_nums_in_query = set(re.findall(r"article\s+(\d+)", query_lower))
+        # Use word boundary \b so "Article 6" does not match "Article 60"
+        article_nums_in_query = set(re.findall(r"article\s+(\d+)\b", query_lower))
 
         for idx, doc in enumerate(self.documents):
             # ── 1. Regulation boost
@@ -603,18 +655,33 @@ class VectorStore:
         pattern = r"Article\s+(\d+[a-z]?)\s*\n(.+?)(?=Article\s+\d+|ANNEX|CHAPTER|$)"
         for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE):
             article_num = match.group(1)
-            article_body = re.sub(r"\s+", " ", match.group(2).strip())
+            # IMPORTANT: preserve whitespace structure for paragraph splitting
+            # Do NOT normalize before splitting — collapsing \n\n prevents paragraph detection
+            raw_body = match.group(2).strip()
 
             ctx = _get_article_context(article_num, regulation)
 
-            # Split long articles into paragraph-sized chunks
-            paragraphs = article_body.split("\n\n")
-            if len(paragraphs) == 1:
-                # No double-newlines — split on ≥2 spaces following a period
-                paragraphs = re.split(r"(?<=\.)\s{2,}", article_body)
+            # Split long articles into paragraph-sized chunks.
+            # Try progressively coarser patterns until we get multiple chunks.
+            paragraphs = [p for p in raw_body.split("\n\n") if p.strip()]
+            if len(paragraphs) <= 1:
+                # Try numbered-paragraph split: "1. text  2. text" or "\n1. "
+                paragraphs = [p for p in re.split(r"\s+\d+\.\s+", raw_body) if p.strip()]
+            if len(paragraphs) <= 1:
+                # Fall back to ≥2 spaces following a period on the (now-normalized) text
+                normalized_body = re.sub(r"\s+", " ", raw_body)
+                paragraphs = [p for p in re.split(r"(?<=\.)\s{2,}", normalized_body) if p.strip()]
+            if len(paragraphs) <= 1:
+                # No structure found — use the whole article as one chunk (normalized)
+                paragraphs = [re.sub(r"\s+", " ", raw_body)]
+
+            reg_key = regulation.lower().replace(" ", "_")
+            # Zero-pad article number to 3 chars so "art_006" sorts/compares before "art_060"
+            art_padded = re.sub(r"(\d+)", lambda m: m.group(1).zfill(3), article_num)
 
             for idx, para in enumerate(paragraphs):
-                para = para.strip()
+                # Normalize each paragraph individually after splitting
+                para = re.sub(r"\s+", " ", para).strip()
                 if len(para) < 50:
                     continue
                 if len(para) > 2000:
@@ -634,7 +701,7 @@ class VectorStore:
                     article=f"Article {article_num}",
                     section_type="article",
                     metadata=metadata,
-                    chunk_id=f"{regulation.lower().replace(' ', '_')}_art_{article_num}_para_{idx + 1}",
+                    chunk_id=f"{reg_key}_art_{art_padded}_para_{idx + 1}",
                     breadcrumb=breadcrumb,
                 ))
 
@@ -847,7 +914,11 @@ class VectorStore:
                 "section_type": doc.section_type,
                 "metadata":     doc.metadata,
                 "chunk_id":     doc.chunk_id,
-                "breadcrumb":   doc.breadcrumb,
+                # Always persist a valid breadcrumb; rebuild it if missing
+                "breadcrumb":   (
+                    doc.breadcrumb
+                    or _build_breadcrumb(doc.metadata, doc.regulation, doc.article)
+                ),
             }
             for doc in self.documents
         ]
@@ -857,7 +928,7 @@ class VectorStore:
         if self.embeddings is not None:
             np.save(self.embeddings_dir / "embeddings.npy", self.embeddings)
 
-        if hasattr(self, "vectorizer"):
+        if getattr(self, "vectorizer", None) is not None:
             with open(self.embeddings_dir / "vectorizer.pkl", "wb") as f:
                 pickle.dump(self.vectorizer, f)
 
@@ -913,13 +984,23 @@ class VectorStore:
                 self.embeddings = np.load(embeddings_path)
 
                 if vectorizer_path.exists():
-                    with open(vectorizer_path, "rb") as f:
-                        self.vectorizer = pickle.load(f)
+                    try:
+                        with open(vectorizer_path, "rb") as f:
+                            self.vectorizer = pickle.load(f)
+                    except Exception as vectorizer_error:
+                        # Keep semantic embeddings usable even if legacy TF-IDF
+                        # pickle files are incompatible with current NumPy.
+                        self.vectorizer = None
+                        print(f"⚠️  Warning: could not load vectorizer.pkl: {vectorizer_error}")
+                        print("   Continuing with semantic embeddings only.")
 
                 if migrated:
                     print(f"  Migrated {migrated} documents with chapter/section metadata.")
                     # Persist the enriched metadata so the migration runs only once
                     self._save_to_disk_metadata_only()
+
+                # Build BM25 index for hybrid retrieval
+                self._init_bm25()
 
                 print(f"Loaded {len(self.documents)} documents.")
 
@@ -934,6 +1015,21 @@ class VectorStore:
             print("   Run: python services/api/services/vector_store.py")
         else:
             print("No embeddings found. Run parse_and_index_pdfs() to create them.")
+
+    def _init_bm25(self) -> None:
+        """
+        Initialise a BM25 index over the loaded documents for hybrid retrieval.
+
+        Requires the ``rank_bm25`` package (``pip install rank-bm25``).
+        Silently skips if the package is not installed — the retriever falls
+        back to pure semantic similarity in that case.
+        """
+        try:
+            from rank_bm25 import BM25Okapi
+            corpus = [doc.text.lower().split() for doc in self.documents]
+            self.bm25 = BM25Okapi(corpus)
+        except ImportError:
+            self.bm25 = None
 
     def _save_to_disk_metadata_only(self) -> None:
         """Save only documents.json (not embeddings) — used during metadata migration."""

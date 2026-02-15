@@ -10,6 +10,20 @@ interface RetrievedPassage {
   score: number
   confidence: 'high' | 'medium' | 'low'
   url: string
+  breadcrumb?: string
+}
+
+interface MatchedArticle {
+  regulation: string
+  article: string
+  breadcrumb?: string
+}
+
+interface ExplorationMeta {
+  intent: 'article_clarification' | 'obligation_finder' | 'concept_explainer' | 'cross_regulation_compare' | 'general'
+  regulation_focus: 'all' | 'EU AI Act' | 'GDPR' | 'DORA'
+  suggested_questions: string[]
+  matched_articles: MatchedArticle[]
 }
 
 interface Message {
@@ -19,14 +33,16 @@ interface Message {
   retrieved_passages?: RetrievedPassage[]
   confidence?: 'high' | 'medium' | 'low' | 'none'
   warnings?: string[]
+  exploration?: ExplorationMeta
 }
 
 interface ChatMessageProps {
   message: Message
   onSourceClick?: (source: Source) => void
+  onSuggestedQuestion?: (question: string) => void
 }
 
-export function ChatMessage({ message, onSourceClick }: ChatMessageProps) {
+export function ChatMessage({ message, onSourceClick, onSuggestedQuestion }: ChatMessageProps) {
   return (
     <div
       className={`rounded-xl border-2 p-5 shadow-sm transition-all hover:shadow-md ${
@@ -91,6 +107,44 @@ export function ChatMessage({ message, onSourceClick }: ChatMessageProps) {
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Exploration Guidance */}
+      {message.role === 'assistant' && message.exploration && (
+        <div className="mt-4 pt-3 border-t space-y-3">
+          {message.exploration.matched_articles.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 font-medium">Matched Articles</p>
+              <div className="flex flex-wrap gap-2">
+                {message.exploration.matched_articles.map((item, idx) => (
+                  <span
+                    key={`matched-${idx}-${item.regulation}-${item.article}`}
+                    className="text-xs px-2 py-1 rounded-lg bg-indigo-100 text-indigo-800 border border-indigo-300"
+                    title={item.breadcrumb}
+                  >
+                    {item.regulation} · {item.article}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {message.exploration.suggested_questions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 font-medium">Next Questions</p>
+              <div className="flex flex-wrap gap-2">
+                {message.exploration.suggested_questions.map((q, idx) => (
+                  <button
+                    key={`suggest-${idx}`}
+                    onClick={() => onSuggestedQuestion?.(q)}
+                    className="text-xs px-2 py-1 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 transition-colors"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

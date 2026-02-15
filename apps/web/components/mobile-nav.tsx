@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/chat', label: 'Smart Q&A', description: 'Ask regulatory questions' },
   { href: '/obligations', label: 'Use Case Analysis', description: 'Find your obligations' },
   { href: '/settings', label: 'Settings', description: 'Configure API keys' },
+  { href: '/contrib', label: 'Contributions', description: 'Preview community proposals' },
 ]
 
 export function MobileNav() {

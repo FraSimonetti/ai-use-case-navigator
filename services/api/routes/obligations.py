@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import ssl
 import urllib.request
 from enum import Enum
 from typing import List, Optional
@@ -9,6 +10,15 @@ from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+def _build_tls_context() -> ssl.SSLContext:
+    """Build TLS context for outbound LLM requests (prefer certifi when available)."""
+    try:
+        import certifi  # type: ignore
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 class InstitutionType(str, Enum):
@@ -87,8 +97,6 @@ class AIUseCase(str, Enum):
     INSURANCE_UNDERWRITING_LIFE = "insurance_underwriting_life"  # HIGH-RISK
     INSURANCE_UNDERWRITING_HEALTH = "insurance_underwriting_health"  # HIGH-RISK
     INSURANCE_UNDERWRITING_PROPERTY = "insurance_underwriting_property"  # Context-dependent
-    INSURANCE_PRICING = "insurance_pricing"  # Generic - needs clarification
-    INSURANCE_UNDERWRITING = "insurance_underwriting"  # Generic - needs clarification
     CLAIMS_PROCESSING = "claims_processing"
     CLAIMS_TRIAGE = "claims_triage"
     CLAIMS_FRAUD_DETECTION = "claims_fraud_detection"
@@ -277,6 +285,8 @@ class ObligationRequest(BaseModel):
     # DORA specific
     critical_ict_service: bool = False  # DORA Art. 28 critical third-party
     outsourced_to_cloud: bool = False  # DORA cloud specific requirements
+    # Art. 25(1) - Substantial modification (deployer becomes provider)
+    substantial_modification: bool = False  # Deployer modified GPAI/AI system substantially
     # GPAI (General Purpose AI) specific - Art. 51-56
     uses_gpai_model: bool = False  # Using foundation models (GPT-4, Claude, Llama, etc.)
     gpai_with_systemic_risk: bool = False  # GPAI with systemic risk (>10^25 FLOPs)
@@ -361,10 +371,18 @@ This assessment must be done BEFORE placing on market.
 """
 
 
+class ValidationResult(BaseModel):
+    confidence: str  # "high", "medium", "low"
+    legal_basis: str
+    explanation: str
+    is_valid: bool
+
+
 class ObligationResponse(BaseModel):
     risk_classification: str
     classification_basis: str
     use_case_profile: Optional[dict] = None
+    validation: Optional[ValidationResult] = None
     obligations: List[Obligation]
     ai_act_obligations: List[Obligation]
     gdpr_obligations: List[Obligation]
@@ -408,13 +426,77 @@ async def list_use_cases():
     }
 
 
+def _validate_classification(request, risk_level: str) -> ValidationResult:
+    """Cross-check classification against Annex III listings and return confidence."""
+    profile = get_use_case_profile(request.use_case)
+    basis = get_classification_basis(request)
+
+    # Prohibited = always high confidence
+    if risk_level == "prohibited":
+        return ValidationResult(
+            confidence="high",
+            legal_basis="Art. 5 EU AI Act (Regulation 2024/1689)",
+            explanation=f"This AI practice is prohibited under Art. 5. {basis}",
+            is_valid=True,
+        )
+
+    # Explicit Annex III high-risk listings
+    annex_iii_explicit = {
+        "credit_scoring", "credit_scoring_consumer", "loan_approval", "loan_default_prediction",
+        "credit_limit_setting", "bnpl_scoring", "mortgage_assessment",
+        "insurance_pricing_life", "insurance_pricing_health",
+        "insurance_underwriting_life", "insurance_underwriting_health",
+        "facial_recognition", "facial_recognition_kyc",
+        "cv_parsing", "resume_screening", "interview_analysis",
+        "employee_monitoring", "productivity_monitoring", "promotion_assessment",
+        "workforce_reduction", "performance_evaluation", "task_allocation_hr",
+    }
+    if request.use_case in annex_iii_explicit and risk_level == "high_risk":
+        return ValidationResult(
+            confidence="high",
+            legal_basis=profile.get("ai_act_reference", "Annex III EU AI Act") if profile else "Annex III EU AI Act",
+            explanation=f"Explicitly listed in Annex III. {basis}",
+            is_valid=True,
+        )
+
+    # B2B corporate = minimal (warn if incorrectly elevated)
+    b2b_minimal = {"credit_scoring_corporate", "corporate_risk_opinion"}
+    if request.use_case in b2b_minimal:
+        is_valid = risk_level in ("minimal_risk", "limited_risk")
+        return ValidationResult(
+            confidence="high" if is_valid else "low",
+            legal_basis="Annex III 5(b) covers natural persons only",
+            explanation="B2B/corporate scoring is NOT high-risk under Annex III 5(b) which explicitly covers natural persons only." if is_valid else "WARNING: B2B use case incorrectly classified as high-risk.",
+            is_valid=is_valid,
+        )
+
+    # Context-dependent = medium confidence
+    if risk_level in ("context_dependent", "limited_risk"):
+        return ValidationResult(
+            confidence="medium",
+            legal_basis=profile.get("ai_act_reference", "Art. 6(3) EU AI Act") if profile else "Art. 6(3) EU AI Act",
+            explanation=f"Classification depends on deployment context. {basis}",
+            is_valid=True,
+        )
+
+    # Default
+    conf = "high" if risk_level in ("high_risk", "minimal_risk") else "medium"
+    return ValidationResult(
+        confidence=conf,
+        legal_basis=profile.get("ai_act_reference", "EU AI Act") if profile else "EU AI Act",
+        explanation=basis,
+        is_valid=True,
+    )
+
+
 @router.post("/find", response_model=ObligationResponse)
 async def find_obligations(request: ObligationRequest):
     risk_level = determine_risk_level(request)
     use_case_profile = get_use_case_profile(request.use_case)
 
     ai_act_obs = get_ai_act_obligations(
-        role=request.role, risk_level=risk_level, use_case=request.use_case
+        role=request.role, risk_level=risk_level, use_case=request.use_case,
+        substantial_modification=request.substantial_modification,
     )
     gdpr_obs = get_gdpr_obligations(
         involves_profiling=request.involves_profiling,
@@ -422,6 +504,9 @@ async def find_obligations(request: ObligationRequest):
         use_case=request.use_case,
         fully_automated=request.fully_automated,
         uses_special_category_data=request.uses_special_category_data,
+        cross_border_processing=request.cross_border_processing,
+        large_scale_processing=request.large_scale_processing,
+        systematic_monitoring=request.systematic_monitoring,
     )
     dora_obs = get_dora_obligations(
         institution_type=request.institution_type,
@@ -444,10 +529,12 @@ async def find_obligations(request: ObligationRequest):
 
     all_obligations = ai_act_obs + gdpr_obs + dora_obs + gpai_obs + sectoral_obs
     timeline = build_compliance_timeline(all_obligations)
+    validation = _validate_classification(request, risk_level)
 
     return ObligationResponse(
         risk_classification=risk_level,
         classification_basis=get_classification_basis(request),
+        validation=validation,
         use_case_profile=use_case_profile,
         obligations=all_obligations,
         ai_act_obligations=ai_act_obs,
@@ -482,7 +569,7 @@ def _make_llm_request(provider: str, api_key: str, model: str, prompt: str, json
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=60, context=_build_tls_context()) as response:
             result = json.loads(response.read().decode("utf-8"))
             return result["choices"][0]["message"]["content"]
     
@@ -503,7 +590,7 @@ def _make_llm_request(provider: str, api_key: str, model: str, prompt: str, json
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=60, context=_build_tls_context()) as response:
             result = json.loads(response.read().decode("utf-8"))
             return result["choices"][0]["message"]["content"]
     
@@ -527,7 +614,7 @@ def _make_llm_request(provider: str, api_key: str, model: str, prompt: str, json
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=60, context=_build_tls_context()) as response:
             result = json.loads(response.read().decode("utf-8"))
             return result["content"][0]["text"]
     
@@ -562,7 +649,6 @@ def _find_base_use_case(description: str) -> Optional[AIUseCase]:
         "customer chatbot": AIUseCase.CUSTOMER_CHATBOT,
         "robo-advisory": AIUseCase.ROBO_ADVISORY,
         "algorithmic trading": AIUseCase.ALGORITHMIC_TRADING,
-        "insurance pricing": AIUseCase.INSURANCE_PRICING,
         "insurance pricing (life)": AIUseCase.INSURANCE_PRICING_LIFE,
         "insurance pricing (health)": AIUseCase.INSURANCE_PRICING_HEALTH,
         "claims processing": AIUseCase.CLAIMS_PROCESSING,
@@ -838,7 +924,7 @@ def _openrouter_request(api_key: str, model: str, prompt: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30, context=_build_tls_context()) as response:
         data = json.loads(response.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"]
 
@@ -847,9 +933,23 @@ def check_art_6_3_exemption(request: ObligationRequest) -> tuple[bool, str]:
     """
     Check if Art. 6(3) exemption applies - when high-risk AI is NOT considered high-risk.
     Returns (is_exempt, reason).
+
+    IMPORTANT: The exemption does NOT apply if significant harm is possible:
+    - is_high_impact=True: significant financial/access consequences
+    - vulnerable_groups=True: affects children, elderly, or other vulnerable groups
+    - denies_service_access=True: can deny access to essential services
     """
+    # Significant-harm gate: exemption blocked if any harm indicator is set
+    if request.is_high_impact or request.vulnerable_groups or request.denies_service_access:
+        return False, (
+            "Art. 6(3) exemption blocked: significant harm potential present "
+            "(high_impact={}, vulnerable_groups={}, denies_service_access={})".format(
+                request.is_high_impact, request.vulnerable_groups, request.denies_service_access
+            )
+        )
+
     exemptions = []
-    
+
     if request.narrow_procedural_task:
         exemptions.append("Art. 6(3)(a): Narrow procedural task")
     if request.improves_human_activity:
@@ -858,28 +958,65 @@ def check_art_6_3_exemption(request: ObligationRequest) -> tuple[bool, str]:
         exemptions.append("Art. 6(3)(c): Detects patterns without replacing human assessment")
     if request.preparatory_task:
         exemptions.append("Art. 6(3)(d): Preparatory task for human assessment")
-    
+
     if exemptions:
         return True, "; ".join(exemptions)
     return False, ""
 
 
+def check_art_5_prohibited(request: ObligationRequest) -> Optional[str]:
+    """
+    Check if use case falls under Art. 5 prohibited AI practices.
+    Returns prohibition reason string if prohibited, None otherwise.
+    Art. 5 checks must run BEFORE any Annex III classification.
+    """
+    # Art. 5(1)(f) - Emotion recognition in workplace or educational institutions
+    # VIDEO_INTERVIEW_ANALYSIS with emotion recognition is explicitly prohibited
+    if request.use_case == AIUseCase.VIDEO_INTERVIEW_ANALYSIS:
+        return (
+            "Art. 5(1)(f) EU AI Act prohibits AI systems that infer emotions of natural persons "
+            "in the workplace or educational institutions. Video interview analysis using emotion "
+            "recognition is prohibited regardless of provider claims about accuracy."
+        )
+
+    # Art. 5(1)(h) - Real-time remote biometric identification in publicly accessible spaces
+    # FACIAL_RECOGNITION operating in real-time in public spaces is prohibited
+    if request.use_case == AIUseCase.FACIAL_RECOGNITION and request.real_time_processing:
+        return (
+            "Art. 5(1)(h) EU AI Act prohibits real-time remote biometric identification systems "
+            "in publicly accessible spaces. Real-time facial recognition in public spaces is "
+            "prohibited subject to narrow law enforcement exceptions (Art. 5(2))."
+        )
+
+    # Art. 5(1)(g) - Biometric categorisation inferring sensitive characteristics
+    # Art. 5(1)(c) - Social scoring by public authorities (flag via use_case description)
+
+    return None
+
+
 def determine_risk_level(request: ObligationRequest) -> str:
     """
     Determine AI Act risk classification based on Annex III, Art. 6, and exemptions.
-    
+
+    PROHIBITED (Art. 5): Checked FIRST - overrides all other classifications.
+
     HIGH-RISK (Annex III):
     - Point 4: Employment/HR (recruitment, promotion, termination, task allocation, monitoring)
     - Point 5(b): Access to essential private services (credit, credit scoring)
     - Point 5(c): Life and health insurance risk assessment and pricing (NOT property/liability!)
-    
+
     EXEMPTIONS (Art. 6(3)): Even if listed in Annex III, NOT high-risk if:
     (a) narrow procedural task
     (b) improves previously completed human activity
     (c) detects patterns without replacing human assessment
     (d) preparatory task for human assessment
     """
-    
+
+    # === ART. 5 PROHIBITED PRACTICES CHECK (MUST BE FIRST) ===
+    prohibited_reason = check_art_5_prohibited(request)
+    if prohibited_reason:
+        return "prohibited"
+
     # === ANNEX III HIGH-RISK CATEGORIES ===
     
     # Point 5(b) - Creditworthiness assessment of natural persons
@@ -902,11 +1039,8 @@ def determine_risk_level(request: ObligationRequest) -> str:
         AIUseCase.INSURANCE_UNDERWRITING_HEALTH,
     ]
     
-    # Generic insurance - depends on life_health_insurance flag
-    insurance_generic = [
-        AIUseCase.INSURANCE_PRICING,
-        AIUseCase.INSURANCE_UNDERWRITING,
-    ]
+    # No generic insurance enums - use specific life/health/property enums instead
+    insurance_generic: list = []
     
     # Point 4 - Employment and HR
     hr_high_risk = [
@@ -925,11 +1059,19 @@ def determine_risk_level(request: ObligationRequest) -> str:
     ]
     
     # Biometric identification (Annex III point 1)
+    # Only REMOTE biometric ID systems in publicly accessible spaces are point 1 high-risk.
+    # Enterprise/1:1 authentication (BIOMETRIC_AUTHENTICATION, VOICE_BIOMETRIC_AUTH) is NOT
+    # Annex III point 1 high-risk - it is limited_risk/context_dependent.
+    # FACIAL_RECOGNITION_KYC is high-risk (biometric verification 1:N against watchlists).
     biometric_high_risk = [
-        AIUseCase.FACIAL_RECOGNITION,
-        AIUseCase.FACIAL_RECOGNITION_KYC,
-        AIUseCase.BIOMETRIC_AUTHENTICATION,
-        AIUseCase.VOICE_BIOMETRIC_AUTH,
+        AIUseCase.FACIAL_RECOGNITION,       # Remote ID in public spaces - point 1
+        AIUseCase.FACIAL_RECOGNITION_KYC,   # KYC biometric verification - point 1
+    ]
+
+    # Enterprise biometric authentication - limited risk, NOT Annex III point 1
+    biometric_limited_risk = [
+        AIUseCase.BIOMETRIC_AUTHENTICATION,  # 1:1 enterprise auth - Art. 50 transparency only
+        AIUseCase.VOICE_BIOMETRIC_AUTH,      # 1:1 voice auth - Art. 50 transparency only
     ]
     
     # === NOT HIGH-RISK - Corporate/B2B ===
@@ -1029,11 +1171,11 @@ def determine_risk_level(request: ObligationRequest) -> str:
     if is_annex_iii_high_risk:
         is_exempt, _ = check_art_6_3_exemption(request)
         if is_exempt:
-            return "exempt_from_high_risk"  # Special classification
+            return "limited_risk"  # Art. 6(3) exemption: listed in Annex III but not high-risk
         return "high_risk"
 
-    # Limited risk systems
-    if request.use_case in limited_risk:
+    # Limited risk systems (chatbots, enterprise biometric auth)
+    if request.use_case in limited_risk or request.use_case in biometric_limited_risk:
         return "limited_risk"
 
     # Check explicit NOT high-risk cases (corporate/B2B)
@@ -1064,9 +1206,55 @@ def determine_risk_level(request: ObligationRequest) -> str:
 
 
 def get_ai_act_obligations(
-    role: AIRole, risk_level: str, use_case: AIUseCase
+    role: AIRole, risk_level: str, use_case: AIUseCase, substantial_modification: bool = False
 ) -> List[Obligation]:
     obligations: List[Obligation] = []
+
+    # Prohibited AI practices - Art. 5
+    if risk_level == "prohibited":
+        obligations.append(
+            Obligation(
+                id="prohibited_practice_art5",
+                name="PROHIBITED AI Practice (Art. 5 EU AI Act)",
+                description="This AI system falls under the prohibited AI practices listed in Art. 5 EU AI Act. Placing on market, putting into service, or using this system is illegal. Immediate cessation required.",
+                source_regulation="eu_ai_act",
+                source_articles=["5(1)"],
+                deadline="2025-02-02",
+                priority="critical",
+                action_items=[
+                    "IMMEDIATELY cease development, deployment, and use of this AI system",
+                    "Notify legal counsel and compliance team",
+                    "Document cessation steps taken",
+                    "Review alternative approaches that do not involve prohibited practices",
+                    "If in doubt, obtain legal opinion before proceeding",
+                ],
+                category="prohibited",
+                applies_to=["provider", "deployer"],
+                summary="This AI practice is prohibited under Art. 5 EU AI Act. Immediate action required.",
+                effort_level="high",
+                legal_basis="Article 5(1) EU AI Act: The following AI practices are prohibited: (f) placing on market, putting into service or using AI systems that deploy subliminal techniques, exploit vulnerabilities, are used for social scoring, perform real-time remote biometric identification in public spaces, or infer emotions in workplaces/educational institutions.",
+                what_it_means="This AI system is explicitly banned by EU law. There are no exemptions for this use case. Continuing to develop or deploy it carries criminal and administrative penalties.",
+                implementation_steps=[
+                    "1. STOP: Immediately halt all development and deployment",
+                    "2. ISOLATE: Ensure no production systems use this AI",
+                    "3. DOCUMENT: Record cessation date and steps taken",
+                    "4. LEGAL: Seek legal advice on any disclosure obligations",
+                    "5. ALTERNATIVE: Identify compliant alternative approaches",
+                ],
+                evidence_required=[
+                    "Cessation certificate signed by compliance officer",
+                    "Legal opinion confirming cessation",
+                    "Alternative approach assessment",
+                ],
+                penalties="Up to €35 million or 7% of annual worldwide turnover - the highest penalty tier under EU AI Act.",
+                common_pitfalls=[
+                    "Claiming the system has 'limited' use of prohibited techniques",
+                    "Assuming consent from employees/students removes prohibition",
+                    "Continuing use while 'assessing' compliance",
+                ],
+            )
+        )
+        return obligations  # No other obligations apply for prohibited systems
 
     # Limited risk obligations (chatbots, emotion recognition disclosure)
     if risk_level == "limited_risk":
@@ -1108,6 +1296,71 @@ def get_ai_act_obligations(
                     "Technical jargon that users don't understand",
                 ],
                 related_obligations=["logging"],
+            )
+        )
+
+    # Art. 50(3) - Emotion recognition disclosure (applies when system detects/infers emotions)
+    emotion_recognition_use_cases = [
+        AIUseCase.SENTIMENT_ANALYSIS,
+        AIUseCase.INTERVIEW_ANALYSIS,
+        AIUseCase.EMPLOYEE_MONITORING,
+    ]
+    if use_case in emotion_recognition_use_cases:
+        obligations.append(
+            Obligation(
+                id="emotion_recognition_disclosure_art50_3",
+                name="Emotion Recognition Disclosure (Art. 50(3))",
+                description="Natural persons exposed to emotion recognition or biometric categorisation AI systems must be informed of the operation of such systems and the emotions or categories being inferred.",
+                source_regulation="eu_ai_act",
+                source_articles=["50(3)"],
+                deadline="2026-08-02",
+                priority="high",
+                action_items=[
+                    "Identify all touchpoints where emotion recognition is used",
+                    "Provide clear, prominent disclosure to affected persons",
+                    "Disclose which emotions/categories are being inferred",
+                    "Implement opt-out mechanism where legally required",
+                    "Document disclosure mechanism and retention policy",
+                ],
+                category="transparency",
+                applies_to=["provider", "deployer"],
+                summary="Inform individuals when AI is analysing their emotions.",
+                effort_level="medium",
+                legal_basis="Article 50(3) EU AI Act: Natural persons exposed to emotion recognition or biometric categorisation systems shall be informed of the operation of such systems.",
+                what_it_means="If your AI system infers emotions, mood, or psychological states of people, those people must be explicitly informed before or during the interaction.",
+                penalties="Up to €15 million or 3% of annual worldwide turnover.",
+            )
+        )
+
+    # Art. 50(4) - Deepfake/synthetic content labelling obligation
+    deepfake_use_cases = [
+        AIUseCase.SYNTHETIC_DATA_GENERATION,
+        AIUseCase.AI_MEETING_INTELLIGENCE,
+    ]
+    if use_case in deepfake_use_cases:
+        obligations.append(
+            Obligation(
+                id="deepfake_labelling_art50_4",
+                name="Synthetic/Deepfake Content Labelling (Art. 50(4))",
+                description="Providers of AI systems that generate or manipulate image, audio, or video content that could falsely appear authentic must ensure content is labelled as AI-generated.",
+                source_regulation="eu_ai_act",
+                source_articles=["50(4)"],
+                deadline="2026-08-02",
+                priority="high",
+                action_items=[
+                    "Identify all AI-generated or AI-manipulated content output",
+                    "Implement machine-readable and human-readable labelling",
+                    "Use technical standards (e.g., C2PA) for content provenance",
+                    "Ensure labels persist when content is shared/downloaded",
+                    "Document labelling mechanism in technical documentation",
+                ],
+                category="transparency",
+                applies_to=["provider", "deployer"],
+                summary="Label AI-generated images, audio, and video as synthetic content.",
+                effort_level="medium",
+                legal_basis="Article 50(4) EU AI Act: Providers of AI systems that generate or manipulate synthetic content shall ensure the output is labelled in machine-readable format and detectable as artificially generated or manipulated.",
+                what_it_means="AI-generated or deepfake content must be labelled. This includes synthetic financial reports, AI-edited recordings, and generated images used in client communications.",
+                penalties="Up to €15 million or 3% of annual worldwide turnover.",
             )
         )
 
@@ -1157,10 +1410,99 @@ def get_ai_act_obligations(
             )
         )
 
+    # Art. 25(1) - Substantial modification: deployer becomes provider
+    if substantial_modification and role in [AIRole.DEPLOYER, AIRole.PROVIDER_AND_DEPLOYER]:
+        obligations.append(
+            Obligation(
+                id="substantial_modification_art25",
+                name="Substantial Modification - Provider Obligations Apply (Art. 25(1))",
+                description="A deployer who makes a substantial modification to a high-risk AI system is considered a provider for that modified system and must comply with all provider obligations under Art. 16.",
+                source_regulation="eu_ai_act",
+                source_articles=["25(1)", "25(2)", "16"],
+                deadline="2026-08-02",
+                priority="critical",
+                action_items=[
+                    "Assess whether modification qualifies as 'substantial' under Art. 25",
+                    "If substantial: register as provider in EU AI Act database",
+                    "Prepare full technical documentation per Art. 11",
+                    "Conduct conformity assessment per Art. 43",
+                    "Affix CE marking per Art. 49",
+                    "Issue EU declaration of conformity per Art. 47",
+                ],
+                category="governance",
+                applies_to=["deployer"],
+                summary="Substantial modification converts you from deployer to provider - full provider obligations apply.",
+                effort_level="high",
+                legal_basis="Article 25(1): Where a deployer substantially modifies a high-risk AI system, that deployer shall be considered to be a provider of that system.",
+                what_it_means="If you materially change how the AI system works (e.g., re-train it, change its intended purpose, or modify safety-critical components), you become the provider and must meet all provider obligations.",
+                penalties="Up to €35 million or 7% of annual worldwide turnover.",
+            )
+        )
+
     if risk_level != "high_risk":
         return obligations
 
     # HIGH-RISK AI OBLIGATIONS - Comprehensive requirements
+
+    # Art. 16 - Provider obligations checklist
+    if role in [AIRole.PROVIDER, AIRole.PROVIDER_AND_DEPLOYER]:
+        obligations.append(
+            Obligation(
+                id="provider_obligations_checklist",
+                name="Provider Obligations Checklist (Art. 16)",
+                description="Providers of high-risk AI systems must comply with the full set of provider obligations: technical documentation, conformity assessment, EU declaration of conformity, CE marking, registration, and post-market monitoring.",
+                source_regulation="eu_ai_act",
+                source_articles=["16", "11", "43", "47", "49", "72"],
+                deadline="2026-08-02",
+                priority="critical",
+                action_items=[
+                    "Art. 11: Prepare technical documentation before placing on market",
+                    "Art. 13: Ensure AI system comes with instructions for use",
+                    "Art. 14: Implement human oversight measures",
+                    "Art. 15: Ensure accuracy, robustness, and cybersecurity",
+                    "Art. 43: Conduct conformity assessment (self or notified body)",
+                    "Art. 47: Issue EU declaration of conformity",
+                    "Art. 49: Affix CE marking",
+                    "Art. 71: Register in EU database before deployment",
+                    "Art. 72: Implement post-market monitoring system",
+                ],
+                category="governance",
+                applies_to=["provider"],
+                summary="Complete provider compliance checklist for high-risk AI systems.",
+                effort_level="high",
+                legal_basis="Article 16 EU AI Act: Providers of high-risk AI systems shall ensure their systems comply with requirements set out in Section 2 and take the actions listed in Article 16(a)-(k).",
+                what_it_means="As a provider, you have a comprehensive set of obligations before and after placing your AI system on the market. This checklist covers all Art. 16 requirements.",
+                penalties="Up to €35 million or 7% of annual worldwide turnover.",
+            )
+        )
+
+    # Art. 49 - CE Marking (providers only)
+    if role in [AIRole.PROVIDER, AIRole.PROVIDER_AND_DEPLOYER]:
+        obligations.append(
+            Obligation(
+                id="ce_marking",
+                name="CE Marking (Art. 49)",
+                description="High-risk AI systems must bear the CE marking before being placed on the EU market or put into service. The CE marking indicates conformity with all applicable EU harmonisation legislation.",
+                source_regulation="eu_ai_act",
+                source_articles=["49", "47", "43"],
+                deadline="2026-08-02",
+                priority="high",
+                action_items=[
+                    "Complete conformity assessment procedure per Art. 43",
+                    "Issue EU declaration of conformity per Art. 47",
+                    "Affix CE marking visibly, legibly, and indelibly to the AI system",
+                    "Ensure CE marking accompanies the AI system documentation",
+                    "Register in EU AI Act database before affixing CE marking",
+                ],
+                category="certification",
+                applies_to=["provider"],
+                summary="Affix CE marking to certify your high-risk AI system's conformity with EU AI Act.",
+                effort_level="high",
+                legal_basis="Article 49 EU AI Act: High-risk AI systems shall bear the CE marking to indicate their conformity with this Regulation. The marking shall be affixed visibly, legibly and indelibly.",
+                what_it_means="CE marking is the formal declaration that your AI system meets all EU AI Act requirements. Without it, you cannot legally place a high-risk AI system on the EU market.",
+                penalties="Up to €15 million or 3% of annual worldwide turnover for misuse of CE marking.",
+            )
+        )
 
     # 1. RISK MANAGEMENT SYSTEM (Art. 9)
     obligations.append(
@@ -1931,7 +2273,18 @@ def get_ai_act_obligations(
     )
 
     # 15. FUNDAMENTAL RIGHTS IMPACT ASSESSMENT (Art. 27)
-    if role in {AIRole.DEPLOYER, AIRole.PROVIDER_AND_DEPLOYER}:
+    # Scoped to: (a) credit/insurance high-risk use cases, OR (b) public authority deployers
+    # Art. 27(1) explicitly covers Annex III point 5(b) and 5(c) use cases for deployers.
+    _fraia_mandatory_use_cases = {
+        AIUseCase.CREDIT_SCORING, AIUseCase.CREDIT_SCORING_CONSUMER,
+        AIUseCase.LOAN_ORIGINATION, AIUseCase.LOAN_APPROVAL, AIUseCase.MORTGAGE_UNDERWRITING,
+        AIUseCase.CREDIT_LIMIT_SETTING, AIUseCase.AFFORDABILITY_ASSESSMENT,
+        AIUseCase.BNPL_CREDIT_DECISIONING,
+        AIUseCase.INSURANCE_PRICING_LIFE, AIUseCase.INSURANCE_PRICING_HEALTH,
+        AIUseCase.INSURANCE_UNDERWRITING_LIFE, AIUseCase.INSURANCE_UNDERWRITING_HEALTH,
+    }
+    _fraia_applies = use_case in _fraia_mandatory_use_cases
+    if role in {AIRole.DEPLOYER, AIRole.PROVIDER_AND_DEPLOYER} and _fraia_applies:
         obligations.append(
             Obligation(
                 id="fraia",
@@ -2051,9 +2404,23 @@ def get_gdpr_obligations(
     use_case: AIUseCase,
     fully_automated: bool,
     uses_special_category_data: bool,
+    cross_border_processing: bool = False,
+    large_scale_processing: bool = False,
+    systematic_monitoring: bool = False,
 ) -> List[Obligation]:
     if not involves_natural_persons:
         return []
+
+    # Auto-detect biometric use cases → special category data (Art. 9)
+    _biometric_use_cases = {
+        AIUseCase.FACIAL_RECOGNITION,
+        AIUseCase.VOICE_BIOMETRIC_AUTH,
+        AIUseCase.BIOMETRIC_AUTHENTICATION,
+        AIUseCase.FACIAL_RECOGNITION_KYC,
+        AIUseCase.VIDEO_INTERVIEW_ANALYSIS,
+    }
+    if use_case in _biometric_use_cases:
+        uses_special_category_data = True
 
     obligations = []
 
@@ -2150,13 +2517,26 @@ def get_gdpr_obligations(
     )
 
     # 3. DATA PROTECTION IMPACT ASSESSMENT (Art. 35)
+    _dpia_mandatory_reason = []
+    if involves_profiling or fully_automated:
+        _dpia_mandatory_reason.append("Art. 35(3)(a): systematic/extensive automated evaluation (profiling)")
+    if large_scale_processing:
+        _dpia_mandatory_reason.append("Art. 35(3)(b): large-scale processing of special categories or criminal conviction data")
+    if systematic_monitoring:
+        _dpia_mandatory_reason.append("Art. 35(3)(c): systematic monitoring of publicly accessible area")
+    _dpia_mandatory_note = " | ".join(_dpia_mandatory_reason) if _dpia_mandatory_reason else ""
+    _dpia_desc = (
+        "DPIA IS MANDATORY for this use case: " + _dpia_mandatory_note + ". "
+        if _dpia_mandatory_note else
+        "A DPIA is mandatory for processing likely to result in high risk to rights and freedoms, including systematic evaluation of personal aspects (profiling) and automated decisions with legal/significant effects."
+    )
     obligations.append(
         Obligation(
             id="dpia",
-            name="Data Protection Impact Assessment (Art. 35)",
-            description="A DPIA is mandatory for processing likely to result in high risk to rights and freedoms, including systematic evaluation of personal aspects (profiling) and automated decisions with legal/significant effects.",
+            name="Data Protection Impact Assessment (Art. 35)" + (" - MANDATORY" if _dpia_mandatory_note else ""),
+            description=_dpia_desc + " Must be performed BEFORE deployment. Cannot be remediated after the fact.",
             source_regulation="gdpr",
-            source_articles=["35(1)", "35(3)", "35(7)"],
+            source_articles=["35(1)", "35(3)(a)", "35(3)(b)", "35(3)(c)", "35(7)"],
             deadline=None,
             priority="critical",
             action_items=[
@@ -2790,6 +3170,296 @@ def get_gdpr_obligations(
         )
     )
 
+    # 15. RIGHT TO OBJECT (Art. 21) - profiling and direct marketing use cases
+    _profiling_use_cases = {
+        AIUseCase.CUSTOMER_SEGMENTATION, AIUseCase.CHURN_PREDICTION,
+        AIUseCase.CROSS_SELL_UPSELL, AIUseCase.NEXT_BEST_ACTION,
+        AIUseCase.SENTIMENT_ANALYSIS,
+    }
+    if involves_profiling or use_case in _profiling_use_cases:
+        obligations.append(
+            Obligation(
+                id="right_to_object_art21",
+                name="Right to Object to Profiling (Art. 21)",
+                description="Data subjects have the right to object to processing for profiling purposes at any time. For direct marketing profiling (Art. 21(2)), this right is ABSOLUTE - no balancing test applies. For other profiling, controller may override only with compelling legitimate grounds.",
+                source_regulation="gdpr",
+                source_articles=["21(1)", "21(2)", "21(3)"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Implement mechanism to receive and process Art. 21 objection requests",
+                    "Cease profiling immediately upon valid objection (Art. 21(2) for direct marketing - absolute)",
+                    "For non-marketing profiling: assess whether compelling grounds override objection",
+                    "Inform data subjects of right to object at first communication (Art. 21(4))",
+                    "Update privacy notice to include explicit Art. 21 right to object disclosure",
+                    "Train staff on handling objection requests within 1 month",
+                ],
+                category="privacy",
+                applies_to=["deployer", "third_party_user"],
+                summary="People can object to AI profiling at any time. For direct marketing, this right is absolute.",
+                effort_level="medium",
+                legal_basis="Article 21(1): The data subject shall have the right to object, on grounds relating to his or her particular situation, at any time to processing of personal data concerning him or her. Article 21(2): Where personal data are processed for direct marketing purposes, the data subject shall have the right to object at any time to processing for such marketing, including profiling.",
+                what_it_means="If you profile customers for marketing, segmentation, or recommendations, they can object and you must stop. For direct marketing profiling (e.g., cross-sell targeting), there is no override - you must stop immediately upon objection.",
+                penalties="Up to €20 million or 4% of annual worldwide turnover.",
+                common_pitfalls=[
+                    "Not distinguishing between absolute (direct marketing) and qualified (other) objection right",
+                    "Failing to inform customers of right to object at first communication",
+                    "No process for receiving and acting on objections",
+                    "Continuing profiling after objection while 'reviewing' the request",
+                ],
+                related_obligations=["automated_decision_safeguards", "transparency_privacy_notice"],
+            )
+        )
+
+    # 16. PRIVACY BY DESIGN (Art. 25)
+    if involves_natural_persons:
+        obligations.append(
+            Obligation(
+                id="privacy_by_design",
+                name="Privacy by Design and by Default (Art. 25)",
+                description="Technical and organisational measures must implement data protection principles effectively and by default. For AI, this means privacy must be built into system architecture from the start, not bolted on.",
+                source_regulation="gdpr",
+                source_articles=["25(1)", "25(2)", "25(3)"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Conduct privacy-by-design review at AI system design phase",
+                    "Implement data minimisation in model features and training data",
+                    "Set privacy-protective default settings (no unnecessary data collection by default)",
+                    "Apply pseudonymisation and encryption where feasible",
+                    "Implement purpose limitation at the technical layer",
+                    "Obtain DPO sign-off on privacy-by-design implementation",
+                    "Document privacy-by-design measures in technical documentation",
+                ],
+                category="privacy",
+                applies_to=["provider", "deployer"],
+                summary="Build privacy into your AI system design from the start - not as an afterthought.",
+                effort_level="high",
+                legal_basis="Article 25(1): Taking into account state of the art, the controller shall implement appropriate technical and organisational measures designed to implement the data-protection principles effectively.",
+                what_it_means="Privacy must be designed into the AI system from the beginning. Default settings should minimise data collection and processing. You cannot rely on users to opt out of privacy-invasive features - they must opt in.",
+                implementation_steps=[
+                    "1. DESIGN PHASE: Integrate privacy requirements in AI architecture design",
+                    "2. DATA AUDIT: Challenge each data element - is it necessary?",
+                    "3. DEFAULT SETTINGS: Ensure defaults minimise data disclosure",
+                    "4. TECHNICAL MEASURES: Implement pseudonymisation, encryption, access controls",
+                    "5. TESTING: Privacy test before deployment",
+                    "6. DPO REVIEW: Obtain DPO sign-off on privacy-by-design implementation",
+                    "7. DOCUMENTATION: Record privacy-by-design decisions and measures",
+                ],
+                evidence_required=[
+                    "Privacy-by-design assessment documentation",
+                    "DPO sign-off records",
+                    "Technical specification showing privacy measures",
+                    "Default settings documentation",
+                ],
+                penalties="Up to €10 million or 2% of annual worldwide turnover.",
+                related_obligations=["dpia", "data_minimization"],
+            )
+        )
+
+    # 17. DATA PROCESSING AGREEMENT (Art. 28) - when third-party vendor involved
+    if True:  # Always add DPA awareness; caller can filter on third_party_vendor
+        obligations.append(
+            Obligation(
+                id="data_processing_agreement",
+                name="Data Processing Agreement (Art. 28)",
+                description="When a third-party vendor processes personal data on your behalf (e.g., AI model provider, cloud infrastructure, data enrichment service), a Data Processing Agreement (DPA) is legally required.",
+                source_regulation="gdpr",
+                source_articles=["28(1)", "28(2)", "28(3)", "28(4)", "28(9)"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Identify all third-party vendors processing personal data for AI",
+                    "Enter into DPA with each processor before processing begins",
+                    "Ensure DPA covers: processing only on documented instructions",
+                    "Ensure DPA covers: confidentiality obligations on processing staff",
+                    "Ensure DPA covers: Art. 32 security measures (encryption, testing)",
+                    "Ensure DPA covers: sub-processor management and approval requirements",
+                    "Ensure DPA covers: audit rights and cooperation with supervisory authorities",
+                    "Ensure DPA covers: deletion/return of data on termination",
+                    "Review AI vendor DPAs for adequacy annually",
+                ],
+                category="privacy",
+                applies_to=["deployer", "third_party_user"],
+                summary="Written contracts required with all AI vendors processing personal data on your behalf.",
+                effort_level="medium",
+                legal_basis="Article 28(1): Where processing is to be carried out on behalf of a controller, the controller shall use only processors providing sufficient guarantees to implement appropriate technical and organisational measures.",
+                what_it_means="Every AI vendor or cloud provider that processes personal data on your behalf must have a signed DPA. This is non-negotiable. The DPA must cover specific requirements including security, sub-processors, and audit rights.",
+                penalties="Up to €10 million or 2% of annual worldwide turnover.",
+                common_pitfalls=[
+                    "AI vendor's standard terms don't constitute a compliant DPA",
+                    "DPA doesn't cover sub-processors (e.g., cloud infrastructure behind AI)",
+                    "No audit rights included in DPA",
+                    "DPA doesn't address deletion of personal data on termination",
+                    "Not reviewing DPA when vendor changes sub-processors",
+                ],
+                related_obligations=["security_of_processing", "records_of_processing"],
+            )
+        )
+
+    # 18. PURPOSE LIMITATION (Art. 5(1)(b)) and STORAGE LIMITATION (Art. 5(1)(e))
+    obligations.append(
+        Obligation(
+            id="purpose_storage_limitation",
+            name="Purpose Limitation & Storage Limitation (Art. 5(1)(b)+(e))",
+            description="Personal data must be collected for specified, explicit, legitimate purposes and not further processed in incompatible ways (Art. 5(1)(b)). Data must not be kept longer than necessary (Art. 5(1)(e)). Critical for AI training data reuse.",
+            source_regulation="gdpr",
+            source_articles=["5(1)(b)", "5(1)(e)", "6(4)"],
+            deadline=None,
+            priority="high",
+            action_items=[
+                "Document original collection purpose for all AI training data",
+                "Conduct Art. 6(4) compatibility assessment before using data for AI training",
+                "Assess compatibility against: link between purposes, context of collection, nature of data, consequences for subjects, safeguards",
+                "Implement retention schedules for all personal data in AI lifecycle",
+                "Establish automated deletion/anonymisation triggers",
+                "Document retention decisions and legal basis in ROPA",
+                "Review and update retention schedules annually",
+            ],
+            category="privacy",
+            applies_to=["provider", "deployer", "third_party_user"],
+            summary="Don't reuse data for AI training without compatibility check. Delete data when no longer needed.",
+            effort_level="medium",
+            legal_basis="Article 5(1)(b): Personal data shall be collected for specified, explicit and legitimate purposes and not further processed in a manner incompatible with those purposes. Article 5(1)(e): Personal data shall be kept no longer than is necessary for the purposes for which they are processed.",
+            what_it_means="Using customer data collected for one purpose (e.g., transaction processing) to train an AI for another purpose (e.g., credit scoring) requires a compatibility assessment. Failing this test means the processing is unlawful. Also, old training data must be deleted when it's no longer needed.",
+            penalties="Up to €20 million or 4% of annual worldwide turnover.",
+            related_obligations=["lawful_basis", "data_minimization"],
+        )
+    )
+
+    # 19. ENHANCED ART. 22(2) EXCEPTION DOCUMENTATION + ART. 22(4) SPECIAL CATEGORY
+    if involves_profiling or fully_automated:
+        obligations.append(
+            Obligation(
+                id="art22_exception_documentation",
+                name="Art. 22(2) Exception Documentation & Art. 22(4) Special Category Prohibition",
+                description="If automated decisions are made based on Art. 22(2) exceptions (contract necessity, legal authorisation, or explicit consent), each exception must be specifically documented. Art. 22(4) PROHIBITS using special category data (health, biometrics, race) in automated decisions UNLESS Art. 9(2)(a) explicit consent or Art. 9(2)(g) substantial public interest applies.",
+                source_regulation="gdpr",
+                source_articles=["22(2)(a)", "22(2)(b)", "22(2)(c)", "22(4)", "9(2)(a)", "9(2)(g)"],
+                deadline=None,
+                priority="critical",
+                action_items=[
+                    "Art. 22(2)(a) CONTRACT: For contract necessity, document which contract requires this automated decision",
+                    "Art. 22(2)(b) LEGAL: For legal authorisation, identify specific EU/Member State law and cite it",
+                    "Art. 22(2)(c) CONSENT: For consent-based, ensure it meets GDPR Art. 7 + explicit consent requirements",
+                    "Art. 22(4) CHECK: Audit whether AI uses any special category data (health, biometric, racial/ethnic, political, religious, trade union, genetic, sexual orientation)",
+                    "Art. 22(4) PROHIBITION: If special category data used, verify either: explicit consent (Art. 9(2)(a)) or substantial public interest with national law basis (Art. 9(2)(g))",
+                    "Document all exception justifications in AI system documentation",
+                ],
+                category="privacy",
+                applies_to=["deployer", "third_party_user"],
+                summary="Document your legal exception for automated decisions. Special category data in automated decisions is prohibited unless explicit consent obtained.",
+                effort_level="high",
+                legal_basis="Article 22(2): Automated decisions may be made where (a) necessary for contract, (b) authorised by Union/Member State law with suitable safeguards, or (c) based on explicit consent. Article 22(4): Decisions under 22(2)(a) and (c) shall not be based on special categories of personal data unless 9(2)(a) or 9(2)(g) applies.",
+                what_it_means="For financial AI (credit scoring, insurance), the exception is typically Art. 22(2)(b) - authorised by law with suitable safeguards. You must identify the specific law and the safeguards. CRITICAL: If your AI uses any health, biometric, or other sensitive data in automated decisions, you are likely violating Art. 22(4) unless you have explicit consent.",
+                penalties="Up to €20 million or 4% of annual worldwide turnover.",
+                common_pitfalls=[
+                    "Relying on 'contract necessity' without documenting why automation is necessary",
+                    "Not identifying the specific law for Art. 22(2)(b) exception",
+                    "Unknowingly using health/biometric data in automated decisions",
+                    "Confusing regular consent with explicit consent for Art. 22(2)(c)",
+                ],
+                related_obligations=["automated_decision_safeguards", "special_category_data"],
+            )
+        )
+
+    # 20. ART. 56 LEAD SUPERVISORY AUTHORITY - cross-border processing
+    if cross_border_processing:
+        obligations.append(
+            Obligation(
+                id="lead_supervisory_authority_art56",
+                name="Lead Supervisory Authority (Art. 56 GDPR)",
+                description="When AI processing is cross-border (operations in multiple EU Member States or affects data subjects in multiple Member States), the supervisory authority of the main establishment is the lead supervisory authority (LSA) for enforcement.",
+                source_regulation="gdpr",
+                source_articles=["56(1)", "56(2)", "60", "65"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Identify your main establishment in the EU (where decisions about AI processing are taken)",
+                    "Determine which national supervisory authority is your LSA",
+                    "Register AI systems with LSA where required",
+                    "Notify LSA of DPIA outcomes that show high residual risk (Art. 36)",
+                    "Submit GDPR/AI inquiries and notifications to LSA primarily",
+                    "Monitor other concerned SAs for any objections (Art. 60 cooperation mechanism)",
+                ],
+                category="privacy",
+                applies_to=["provider", "deployer"],
+                summary="For cross-border AI processing, engage your Lead Supervisory Authority (typically where your EU HQ is).",
+                effort_level="medium",
+                legal_basis="Article 56(1): Without prejudice to Article 55, the supervisory authority of the main establishment of the controller or processor shall be competent to act as lead supervisory authority for the cross-border processing carried out by that controller or processor.",
+                what_it_means="If your AI system processes data across EU borders, you have a single 'lead' regulator (the one-stop-shop). Identify yours and direct compliance matters there. Other national regulators can object through the cooperation mechanism.",
+                penalties="Up to €20 million or 4% of annual worldwide turnover.",
+                related_obligations=["records_of_processing", "dpia"],
+            )
+        )
+
+    # 21. ART. 88 EMPLOYEE DATA WARNING for HR monitoring use cases
+    _hr_monitoring_use_cases = {AIUseCase.EMPLOYEE_MONITORING, AIUseCase.PRODUCTIVITY_MONITORING}
+    if use_case in _hr_monitoring_use_cases:
+        obligations.append(
+            Obligation(
+                id="art88_employee_data_national_law",
+                name="Art. 88 Employee Data - National Implementation Warning",
+                description="GDPR Art. 88 allows Member States to enact more specific rules for employee data processing. Employee monitoring AI is subject to BOTH GDPR AND national employment data law (e.g., Germany: works council co-determination; France: CNIL guidance; Netherlands: WCA). Rules vary significantly by country.",
+                source_regulation="gdpr",
+                source_articles=["88(1)", "88(2)"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Identify all EU Member States where employee monitoring AI is deployed",
+                    "For each country: consult local employment counsel on Art. 88 national rules",
+                    "Germany: Check Betriebsverfassungsgesetz §87(1) - works council co-determination required",
+                    "France: Consult CNIL guidance on employee monitoring; notify works council",
+                    "Netherlands: Check WCA (Works Councils Act) for consent requirements",
+                    "Ensure works council / employee representative consultation where required",
+                    "Document national law compliance for each deployment country",
+                ],
+                category="privacy",
+                applies_to=["deployer"],
+                summary="Employee monitoring AI is subject to varying national employment data rules across EU - consult local counsel.",
+                effort_level="high",
+                legal_basis="Article 88(1): Member States may, by law or by collective agreements, provide for more specific rules to ensure the protection of the rights and freedoms in respect of the processing of employees' personal data in the employment context.",
+                what_it_means="Employee monitoring AI is one of the most complex areas because every EU country has different rules. Germany requires works council approval. France has CNIL guidance. Netherlands has WCA requirements. One EU-wide policy is not sufficient.",
+                penalties="Up to €20 million or 4% of annual worldwide turnover PLUS national employment law penalties.",
+                related_obligations=["dpia", "lawful_basis"],
+            )
+        )
+
+    # 22. FRIA+DPIA INTEGRATION GUIDANCE
+    _fria_use_cases = {
+        AIUseCase.CREDIT_SCORING, AIUseCase.CREDIT_SCORING_CONSUMER, AIUseCase.LOAN_ORIGINATION,
+        AIUseCase.LOAN_APPROVAL, AIUseCase.MORTGAGE_UNDERWRITING, AIUseCase.AFFORDABILITY_ASSESSMENT,
+        AIUseCase.INSURANCE_PRICING_LIFE, AIUseCase.INSURANCE_PRICING_HEALTH,
+        AIUseCase.INSURANCE_UNDERWRITING_LIFE, AIUseCase.INSURANCE_UNDERWRITING_HEALTH,
+    }
+    if use_case in _fria_use_cases:
+        obligations.append(
+            Obligation(
+                id="fria_dpia_integration",
+                name="Integrated FRIA + DPIA Assessment (EDPB-ENISA Guidance)",
+                description="For credit and insurance AI, both the EU AI Act FRIA (Art. 27) and GDPR DPIA (Art. 35) are mandatory. EDPB and ENISA recommend conducting these as an integrated assessment to avoid duplication and ensure comprehensive coverage of both fundamental rights and privacy risks.",
+                source_regulation="gdpr",
+                source_articles=["35(1)", "35(7)"],
+                deadline=None,
+                priority="high",
+                action_items=[
+                    "Conduct FRIA and DPIA as a single integrated assessment process",
+                    "Map GDPR DPIA requirements (Art. 35(7)) to FRIA requirements (AI Act Art. 27)",
+                    "Share risk register between FRIA and DPIA for efficiency",
+                    "Involve both DPO (GDPR) and AI governance officer (AI Act) in joint assessment",
+                    "Reference EDPB Guidelines 05/2022 and ENISA AI Cybersecurity guidance",
+                    "Document integration approach and any gaps between requirements",
+                ],
+                category="privacy",
+                applies_to=["deployer"],
+                summary="Conduct FRIA (AI Act Art. 27) and DPIA (GDPR Art. 35) as an integrated assessment to avoid duplication.",
+                effort_level="high",
+                legal_basis="GDPR Art. 35 and EU AI Act Art. 27 - both mandatory for credit/insurance AI. EDPB-ENISA guidance recommends integrated approach.",
+                what_it_means="You have two overlapping mandatory impact assessments for credit/insurance AI. The most efficient approach is to integrate them. EDPB and ENISA have published guidance on how to do this effectively.",
+                related_obligations=["dpia", "fraia"],
+            )
+        )
+
     return obligations
 
 
@@ -2824,7 +3494,7 @@ def get_dora_obligations(
             applies_to=["deployer", "third_party_user"],
             summary="AI is ICT under DORA - include it in your ICT risk management framework.",
             effort_level="high",
-            legal_basis="Article 5: Financial entities shall have a sound, comprehensive and well-documented ICT risk management framework as part of their overall risk management system.",
+            legal_basis="Article 5 DORA: Financial entities shall have a sound, comprehensive and well-documented ICT risk management framework. RTS: Commission Delegated Regulation (EU) 2024/1773 on ICT risk management tools, methods, processes and policies. ITS: Commission Implementing Regulation (EU) 2024/1506 (register of information).",
             what_it_means="Your AI systems are ICT systems under DORA. They must be fully integrated into your ICT risk management framework, including risk identification, protection, monitoring, incident response, and recovery planning.",
             implementation_steps=[
                 "1. INVENTORY: Add all AI systems to ICT asset register with criticality classification",
@@ -2876,7 +3546,7 @@ def get_dora_obligations(
             applies_to=["deployer", "third_party_user"],
             summary="Report AI failures/incidents like other ICT incidents - may need to notify regulators.",
             effort_level="medium",
-            legal_basis="Article 17: Financial entities shall define, establish and implement an ICT-related incident management process to detect, manage and notify ICT-related incidents.",
+            legal_basis="Article 17 DORA: Financial entities shall define, establish and implement an ICT-related incident management process. RTS: Commission Delegated Regulation (EU) 2024/1772 (incident classification criteria). ITS: Commission Implementing Regulation (EU) 2024/2956 (incident reporting templates and procedures).",
             what_it_means="When your AI system fails, produces biased outputs, or has security incidents, these are ICT incidents under DORA. You need processes to detect, manage, and potentially report these to regulators.",
             implementation_steps=[
                 "1. CLASSIFICATION: Define AI incident types in your taxonomy (model failure, performance degradation, bias detected, adversarial attack, data breach, etc.)",
@@ -2926,7 +3596,7 @@ def get_dora_obligations(
             applies_to=["deployer", "third_party_user"],
             summary="Test AI system resilience - can it withstand attacks, failures, and recover?",
             effort_level="high",
-            legal_basis="Article 24: Financial entities shall establish, maintain and review a sound and comprehensive digital operational resilience testing programme as an integral part of the ICT risk-management framework.",
+            legal_basis="Article 24 DORA: Financial entities shall establish, maintain and review a digital operational resilience testing programme. RTS: Commission Delegated Regulation (EU) 2024/1773 (testing requirements). TIBER-EU framework for Threat-Led Penetration Testing (Art. 26(1)).",
             what_it_means="You must regularly test your AI systems' resilience - can they withstand attacks, failures, and adverse conditions? Do your recovery procedures work?",
             implementation_steps=[
                 "1. SCOPE: Identify AI systems to include in testing program",
@@ -2979,7 +3649,7 @@ def get_dora_obligations(
                 applies_to=["third_party_user"],
                 summary="🔴 BUYING AI FROM A VENDOR? You must manage vendor risks, have proper contracts, and plan for vendor failure.",
                 effort_level="high",
-                legal_basis="Article 28: Financial entities shall manage ICT third-party risk as an integral component of ICT risk within their ICT risk management framework.",
+                legal_basis="Article 28 DORA: Financial entities shall manage ICT third-party risk as an integral component of ICT risk. RTS: Commission Delegated Regulation (EU) 2024/1505 (subcontracting ICT services supporting critical functions). ITS: Commission Implementing Regulation (EU) 2024/1506 (register of information on ICT third-party providers).",
                 what_it_means="If you use third-party AI services (cloud AI, AI platforms, AI model providers), you remain responsible for managing the risks. You need contracts with specific provisions, ongoing monitoring, and exit plans.",
                 implementation_steps=[
                     "1. REGISTER: Maintain register of all AI third-party providers",
@@ -3061,6 +3731,368 @@ def get_dora_obligations(
             )
         )
 
+    # NEW: Art. 5(2) MANAGEMENT BODY ICT ACCOUNTABILITY
+    obligations.append(
+        Obligation(
+            id="management_body_ict_accountability",
+            name="Management Body ICT Accountability (Art. 5(2) DORA)",
+            description="The management body (board/senior management) of a financial entity bears ultimate accountability for the ICT risk management framework. Board must approve ICT risk strategy, conduct annual review, allocate dedicated ICT budget, and has personal liability for DORA compliance failures.",
+            source_regulation="dora",
+            source_articles=["5(2)", "5(4)"],
+            deadline="2025-01-17",
+            priority="critical",
+            action_items=[
+                "Board: Formally approve ICT risk management framework and ICT risk strategy",
+                "Board: Schedule annual review of ICT risk framework (Art. 5(4))",
+                "CFO/Board: Allocate dedicated ICT risk management budget",
+                "Board: Ensure adequate staffing for ICT risk and AI governance functions",
+                "Board: Receive regular (at least annual) ICT risk reports including AI risks",
+                "Legal: Confirm individual board member liability for DORA compliance",
+                "Document all board approvals and review meetings for regulatory evidence",
+            ],
+            category="governance",
+            applies_to=["deployer", "third_party_user"],
+            summary="Board is personally accountable for ICT risk including AI. Annual approval of ICT strategy required.",
+            effort_level="high",
+            legal_basis="Article 5(2) DORA: The management body of the financial entity shall define, approve, oversee and be accountable for the implementation of all arrangements related to the ICT risk management framework referred to in Article 6. RTS: Commission Delegated Regulation (EU) 2024/1773.",
+            what_it_means="AI risk is board-level responsibility under DORA. Individual board members can be held personally liable for inadequate ICT risk management. The board must actively approve and annually review the ICT risk strategy, not just delegate it.",
+            implementation_steps=[
+                "1. BOARD AGENDA: Add DORA/AI ICT risk as standing board agenda item",
+                "2. APPROVAL: Board formally approves ICT risk framework including AI systems",
+                "3. BUDGET: Allocate dedicated ICT risk budget in board-approved budget",
+                "4. REVIEW CYCLE: Schedule annual board review per Art. 5(4)",
+                "5. REPORTING: Establish regular ICT risk reporting to board",
+                "6. TRAINING: Ensure board members understand AI-specific ICT risks",
+                "7. DOCUMENTATION: Minute all board discussions and approvals for regulators",
+            ],
+            evidence_required=[
+                "Board resolution approving ICT risk strategy",
+                "Board minutes showing annual review",
+                "Budget allocation for ICT risk management",
+                "Board-level ICT risk reports",
+                "Board member training records on ICT/AI risks",
+            ],
+            penalties="Personal liability for board members; administrative fines for entity.",
+            related_obligations=["ict_risk_management"],
+        )
+    )
+
+    # NEW: Art. 18(1) MAJOR INCIDENT CLASSIFICATION CRITERIA
+    obligations.append(
+        Obligation(
+            id="major_incident_classification",
+            name="Major ICT Incident Classification Criteria (Art. 18(1) + RTS 2024/1772)",
+            description="Financial entities must classify ICT-related incidents as 'major' if they meet specific criteria. For AI systems, model failures, bias incidents, and performance degradation must be assessed against these criteria. Reference: Commission Delegated Regulation (EU) 2024/1772 on classification criteria.",
+            source_regulation="dora",
+            source_articles=["18(1)", "18(2)", "18(3)"],
+            deadline="2025-01-17",
+            priority="critical",
+            action_items=[
+                "(a) CLIENTS AFFECTED: Count number and % of clients affected by AI failure",
+                "(b) DURATION: Measure downtime/degradation duration; >30 min may trigger major classification",
+                "(c) GEOGRAPHICAL SPREAD: Assess if AI failure affects multiple EU Member States",
+                "(d) DATA LOSSES: Assess confidentiality, integrity, or availability losses from AI incident",
+                "(e) CRITICALITY OF SERVICES: Assess if affected AI supports payment, credit, or trading systems",
+                "(f) ECONOMIC IMPACT: Calculate direct and indirect financial losses from AI failure",
+                "Implement automated incident classification checklist in incident management system",
+                "Document classification rationale for every AI-related incident",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="Structured checklist: 6 criteria determine if AI incident is 'major' requiring regulatory reporting. RTS 2024/1772.",
+            effort_level="high",
+            legal_basis="Article 18(1) DORA: Financial entities shall classify ICT-related incidents and determine their impact based on criteria set out in Article 18(1)(a)-(f). Commission Delegated Regulation (EU) 2024/1772 specifies the criteria and thresholds.",
+            what_it_means="Not every AI failure triggers regulatory reporting - only 'major' incidents. You need a structured assessment against 6 criteria: clients affected, duration, geographic spread, data losses, criticality of services, and economic impact. RTS 2024/1772 provides specific thresholds for each criterion.",
+            implementation_steps=[
+                "1. INTEGRATE RTS: Implement RTS 2024/1772 thresholds in incident classification system",
+                "2. AUTOMATED TRIAGE: Build automated scoring against 6 criteria for every incident",
+                "3. AI-SPECIFIC INDICATORS: Add AI-specific triggers (model drift, bias spike, performance drop)",
+                "4. ESCALATION MATRIX: Define escalation paths based on classification outcome",
+                "5. DOCUMENTATION: Record classification decision and rationale for every incident",
+                "6. REPORTING TRIGGER: Auto-trigger reporting workflow when 'major' classification confirmed",
+            ],
+            evidence_required=[
+                "Incident classification policy implementing RTS 2024/1772 criteria",
+                "Incident management system configuration showing 6-criteria assessment",
+                "Records of all classification decisions with rationale",
+                "Major incident reports submitted (if any)",
+            ],
+            related_obligations=["ict_incident_management"],
+        )
+    )
+
+    # NEW: Art. 19-20 EXPLICIT INCIDENT REPORTING TIMELINES
+    obligations.append(
+        Obligation(
+            id="incident_reporting_timelines",
+            name="Major Incident Reporting Timelines (Art. 19-20 + ITS 2024/2956)",
+            description="Once an ICT-related incident is classified as 'major', strict reporting timelines apply: (1) Initial notification within 4 hours of classification (max 24h of awareness); (2) Intermediate report within 72 hours; (3) Final report within 1 month. Reference: Commission Implementing Regulation (EU) 2024/2956 on reporting templates.",
+            source_regulation="dora",
+            source_articles=["19(1)", "19(2)", "19(3)", "19(4)", "20"],
+            deadline="2025-01-17",
+            priority="critical",
+            action_items=[
+                "INITIAL (4h/24h): Submit initial notification within 4 hours of classification, no later than 24h after first awareness",
+                "INTERMEDIATE (72h): Submit intermediate report with current status, impact assessment, and mitigation steps taken",
+                "FINAL (1 month): Submit final report including root cause analysis, permanent remediation, and lessons learned",
+                "Implement reporting templates per ITS 2024/2956 in incident management system",
+                "Establish 24/7 escalation path to ensure 4-hour deadline is met",
+                "Define who has authority to submit regulatory notifications",
+                "Test reporting workflow in regular drills",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="Major AI incident → 4h initial report → 72h intermediate → 1 month final. Templates: ITS 2024/2956.",
+            effort_level="high",
+            legal_basis="Article 19(1)-(4) DORA: Financial entities shall submit initial notification within 4 hours (max 24h), intermediate report within 72 hours, and final report within 1 month after resolution. Commission Implementing Regulation (EU) 2024/2956 provides reporting templates and content requirements.",
+            what_it_means="Once you confirm an incident is 'major', you have just 4 hours to notify regulators (or 24h from first awareness, whichever is earlier). This requires 24/7 readiness. The 72h intermediate and 1-month final reports require progressively more detail. Use ITS 2024/2956 templates.",
+            implementation_steps=[
+                "1. 24/7 COVERAGE: Ensure incident classification and notification authority is available 24/7",
+                "2. TEMPLATES: Implement ITS 2024/2956 templates in reporting system",
+                "3. AUTOMATION: Auto-generate initial notification draft upon major classification",
+                "4. AUTHORITY: Define who has authority to submit each type of report",
+                "5. DRILLS: Test 4-hour reporting capability in quarterly incident drills",
+                "6. CONTACT LIST: Maintain current competent authority contact details",
+                "7. TRACKING: Track reporting deadlines automatically from classification timestamp",
+            ],
+            evidence_required=[
+                "Incident reporting policy with explicit timelines",
+                "ITS 2024/2956 templates implemented in system",
+                "24/7 escalation path documentation",
+                "Drill records testing reporting capability",
+                "Submitted regulatory reports (if any incidents occurred)",
+            ],
+            penalties="Significant administrative fines for missing reporting deadlines. Reputational damage from late reporting.",
+            related_obligations=["major_incident_classification", "ict_incident_management"],
+        )
+    )
+
+    # NEW: Art. 14 POST-INCIDENT LEARNING
+    obligations.append(
+        Obligation(
+            id="post_incident_learning_art14",
+            name="Post-Incident Learning & Lessons Learned (Art. 14 DORA)",
+            description="Financial entities must derive lessons learned from ICT-related incidents, including AI failures, and use them to improve the ICT risk management framework. Post-incident analysis is mandatory, not optional.",
+            source_regulation="dora",
+            source_articles=["14(1)", "14(2)"],
+            deadline="2025-01-17",
+            priority="high",
+            action_items=[
+                "Conduct root cause analysis (RCA) for every major AI incident",
+                "Document technical and organisational root causes",
+                "Identify control failures that allowed incident to occur",
+                "Propose and implement remediation measures",
+                "Update AI risk assessment based on lessons learned",
+                "Update ICT risk management framework to prevent recurrence",
+                "Share lessons learned with relevant business units",
+                "Include lessons learned in annual ICT risk review",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="Mandatory post-incident analysis for every major AI incident with documented lessons learned.",
+            effort_level="medium",
+            legal_basis="Article 14(2) DORA: Financial entities shall establish post-ICT-related incident reviews after a major ICT-related incident has occurred to identify the lessons learned and determine improvements to the ICT operations or within the business continuity policy.",
+            what_it_means="Every major AI incident must trigger a formal post-incident review. Lessons learned must flow back into your ICT risk framework. Regulators will expect to see evidence of continuous improvement from incident learnings.",
+            evidence_required=[
+                "Post-incident review reports with root cause analysis",
+                "Remediation action plans and completion records",
+                "Updated risk assessments post-incident",
+                "ICT framework updates triggered by lessons learned",
+                "Annual incident learning review documentation",
+            ],
+            related_obligations=["ict_incident_management", "incident_reporting_timelines"],
+        )
+    )
+
+    # NEW: Art. 26 TLPT SCOPE SELF-ASSESSMENT
+    _tlpt_institutions = {InstitutionType.BANK, InstitutionType.INSURER, InstitutionType.INVESTMENT_FIRM}
+    if institution_type in _tlpt_institutions:
+        obligations.append(
+            Obligation(
+                id="tlpt_scope_assessment",
+                name="TLPT Scope Self-Assessment for AI (Art. 26 DORA + TIBER-EU)",
+                description="Banks, insurers, and investment firms may be required to conduct Threat-Led Penetration Testing (TLPT) under Art. 26 DORA. High-risk AI systems supporting critical functions must be assessed for TLPT scope inclusion. TLPT follows TIBER-EU framework with 3-year cycle (Art. 26(4)).",
+                source_regulation="dora",
+                source_articles=["26(1)", "26(4)", "26(5)"],
+                deadline="2025-01-17",
+                priority="high",
+                action_items=[
+                    "Determine if institution is in scope for mandatory TLPT (competent authority designation)",
+                    "Identify all AI systems that could be within TLPT scope (critical/important function support)",
+                    "Assess AI systems against TLPT scope criteria per Art. 26(1)",
+                    "If AI is in scope: include AI-specific threat scenarios in TLPT",
+                    "Engage TIBER-EU approved threat intelligence providers",
+                    "Plan 3-year TLPT cycle (Art. 26(4)) to include AI system updates",
+                    "Ensure AI vendors provide necessary cooperation for TLPT exercises",
+                ],
+                category="resilience",
+                applies_to=["deployer", "third_party_user"],
+                summary="Banks/insurers/investment firms: assess if high-risk AI must be in TLPT scope. 3-year cycle per TIBER-EU.",
+                effort_level="high",
+                legal_basis="Article 26(1) DORA: Financial entities designated by competent authorities shall perform threat-led penetration testing. Article 26(4): TLPT shall be conducted at least every 3 years. Reference: TIBER-EU framework and ECB TIBER-EU implementation guidance.",
+                what_it_means="Larger banks and key financial institutions will be required to perform advanced penetration testing (TLPT) following TIBER-EU. AI systems supporting credit, trading, fraud detection, or other critical functions must be in scope. TLPT is more rigorous than standard penetration testing - it uses real threat intelligence.",
+                evidence_required=[
+                    "TLPT scope self-assessment documentation",
+                    "AI system criticality mapping for TLPT scope",
+                    "TIBER-EU threat intelligence provider engagement",
+                    "TLPT schedule (3-year cycle)",
+                    "TLPT results and remediation (confidential - to be shared with competent authority)",
+                ],
+                related_obligations=["digital_resilience_testing", "critical_function_oversight"],
+            )
+        )
+
+    # NEW: Art. 33-44 CRITICAL THIRD-PARTY PROVIDER (CTPP) OVERSIGHT
+    if True:  # critical_ict_service flag available at call site; add for awareness always
+        obligations.append(
+            Obligation(
+                id="ctpp_oversight_art33_44",
+                name="Critical Third-Party Provider (CTPP) Oversight (Art. 33-44 DORA)",
+                description="The EU regulators (ESAs) may designate third-party ICT service providers as 'Critical Third-Party Providers' (CTPPs). Azure OpenAI Service, AWS Bedrock, and Google Vertex AI are potential CTPP candidates. When your AI vendor is a CTPP, enhanced oversight obligations apply including Art. 35 information requests, Art. 36 investigations, and Art. 40 joint examinations.",
+                source_regulation="dora",
+                source_articles=["33", "35", "36", "40", "41"],
+                deadline="2025-01-17",
+                priority="high",
+                action_items=[
+                    "Monitor ESA publications for CTPP designations (first list expected 2025)",
+                    "Check if your AI vendors (Azure OpenAI, AWS Bedrock, Google Vertex, OpenAI) are designated CTPPs",
+                    "If vendor is CTPP: ensure contract allows ESA information requests (Art. 35)",
+                    "If vendor is CTPP: cooperate with ESA investigations (Art. 36)",
+                    "If vendor is CTPP: prepare for joint examination participation (Art. 40)",
+                    "Assess concentration risk: over-reliance on a single potential CTPP for AI infrastructure",
+                    "Review CTPP registers published by EBA, EIOPA, and ESMA",
+                ],
+                category="resilience",
+                applies_to=["third_party_user"],
+                summary="Azure OpenAI, AWS Bedrock, Google Vertex may be designated CTPPs - prepare for enhanced oversight obligations.",
+                effort_level="medium",
+                legal_basis="Article 33 DORA: ESAs may designate third-party ICT service providers as critical. Article 35: Lead overseer may request information from CTPPs. Article 36: Lead overseer may conduct investigations. Article 40: Joint examination of CTPPs. Note: `critical_ict_service=True` in your request triggers enhanced obligations.",
+                what_it_means="If your AI infrastructure provider (Azure, AWS, Google, OpenAI) is designated a CTPP by ESAs, you'll be subject to regulatory scrutiny of those vendor relationships. Your contracts must allow regulators to access information about the service. This is new DORA-specific risk.",
+                implementation_steps=[
+                    "1. MONITORING: Subscribe to EBA/EIOPA/ESMA updates on CTPP designations",
+                    "2. CONTRACT REVIEW: Verify AI vendor contracts permit ESA information requests",
+                    "3. CONCENTRATION ASSESSMENT: Document foundation model concentration risk",
+                    "4. MULTI-CLOUD STRATEGY: Consider multi-vendor strategy to reduce CTPP concentration",
+                    "5. ESCALATION PATH: Define who responds to ESA/JON requests for CTPP information",
+                ],
+                evidence_required=[
+                    "AI vendor registry noting CTPP status",
+                    "Contract review confirming Art. 35 cooperation clauses",
+                    "Concentration risk assessment for AI infrastructure",
+                    "Response to any ESA information requests (if received)",
+                ],
+                related_obligations=["third_party_ict_risk", "critical_function_oversight"],
+            )
+        )
+
+    # NEW: Art. 11(4) BCP RTO/RPO METRICS FOR AI
+    obligations.append(
+        Obligation(
+            id="ai_bcp_rto_rpo",
+            name="AI Business Continuity - RTO/RPO Metrics (Art. 11(4) DORA)",
+            description="Financial entities must define and maintain Recovery Time Objectives (RTO) and Recovery Point Objectives (RPO) for ICT systems supporting critical or important functions. AI systems supporting credit, fraud, or trading must have explicit RTO/RPO aligned with business requirements.",
+            source_regulation="dora",
+            source_articles=["11(4)", "11(5)", "11(6)"],
+            deadline="2025-01-17",
+            priority="high",
+            action_items=[
+                "Define RTO for each critical AI system (maximum acceptable downtime)",
+                "Define RPO for each critical AI system (maximum acceptable data loss period)",
+                "Align RTO/RPO with business function criticality (credit: <1h, fraud: <15min, trading: <5min)",
+                "Test RTO/RPO achievement in resilience testing exercises",
+                "Document RTO/RPO in Business Continuity Plan (BCP)",
+                "Include AI model rollback time in RTO calculations",
+                "Review and update RTO/RPO when AI systems change",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="Define RTO/RPO for every critical AI system - credit/fraud/trading AI needs tight targets.",
+            effort_level="medium",
+            legal_basis="Article 11(4) DORA: Financial entities shall set out quantitative targets for ICT business continuity, in particular recovery time objectives and recovery point objectives for critical functions.",
+            what_it_means="For AI systems supporting critical functions, you need specific recovery targets. If your credit AI goes down, how long before it must be back? 1 hour? 4 hours? This must be formally defined, tested, and met. AI model rollback time must be factored in.",
+            evidence_required=[
+                "BCP documentation with AI system RTO/RPO",
+                "RTO/RPO justification aligned with business criticality",
+                "Testing results demonstrating RTO/RPO achievement",
+                "Model rollback procedures and timing evidence",
+            ],
+            related_obligations=["digital_resilience_testing", "ict_risk_management"],
+        )
+    )
+
+    # NEW: AI-SPECIFIC RISKS - Model drift, AI supply chain, concentration risk
+    obligations.append(
+        Obligation(
+            id="ai_specific_ict_risks",
+            name="AI-Specific ICT Risk Management (Model Drift, Supply Chain, Concentration)",
+            description="DORA ICT risk management must include AI-specific risks not covered by traditional ICT risk frameworks: (1) model drift and performance degradation over time, (2) AI supply chain risks (training data poisoning, model provenance), (3) foundation model concentration risk (over-reliance on OpenAI/Google/Microsoft for AI infrastructure).",
+            source_regulation="dora",
+            source_articles=["6(1)", "9(2)", "28(8)"],
+            deadline="2025-01-17",
+            priority="high",
+            action_items=[
+                "MODEL DRIFT: Implement model performance monitoring with automated drift detection",
+                "MODEL DRIFT: Define performance degradation thresholds that trigger incident classification",
+                "AI SUPPLY CHAIN: Document provenance of all AI models (source, training data, versions)",
+                "AI SUPPLY CHAIN: Assess training data poisoning risks for models trained on external data",
+                "CONCENTRATION RISK: Map all AI dependencies on foundation models (OpenAI/Anthropic/Google/Meta)",
+                "CONCENTRATION RISK: Assess impact if single foundation model provider has outage or withdrawal",
+                "CONCENTRATION RISK: Develop multi-model contingency plans for critical AI applications",
+                "Include all three risk types in ICT risk assessment and annual review",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="AI adds three new ICT risks: model drift, training data supply chain, and foundation model concentration.",
+            effort_level="high",
+            legal_basis="DORA Art. 6(1) requires comprehensive ICT risk management. AI-specific risks (drift, supply chain, concentration) are part of ICT risk per EBA/EIOPA/ESMA guidance on AI and DORA. Art. 28(8) addresses concentration risk from third-party ICT providers.",
+            what_it_means="Traditional ICT risk frameworks were built for databases and servers, not AI. Three AI-specific risks need explicit treatment: (1) Models degrade over time as data patterns shift. (2) AI supply chains can be compromised through poisoned training data. (3) Over-reliance on a single foundation model provider (e.g., Azure OpenAI) is a systemic concentration risk.",
+            evidence_required=[
+                "Model performance monitoring system with drift detection",
+                "AI model provenance documentation",
+                "AI supply chain risk assessment",
+                "Foundation model concentration risk assessment",
+                "Multi-model contingency plan for critical AI functions",
+            ],
+            related_obligations=["ict_risk_management", "third_party_ict_risk"],
+        )
+    )
+
+    # NEW: PARALLEL INCIDENT REPORTING (AI Act Art. 73 + DORA Art. 19)
+    obligations.append(
+        Obligation(
+            id="parallel_incident_reporting",
+            name="Parallel Incident Reporting: AI Act Art. 73 + DORA Art. 19",
+            description="For financial entities using high-risk AI, a serious incident may trigger PARALLEL reporting obligations: DORA Art. 19 (major ICT incident to financial regulator within 4h/72h/1 month) AND AI Act Art. 73 (serious AI incident to market surveillance authority within 15 days, or 2 days for death/imminent risk). These must be coordinated but go to different authorities.",
+            source_regulation="dora",
+            source_articles=["19(1)", "19(4)"],
+            deadline="2025-01-17",
+            priority="high",
+            action_items=[
+                "Map which AI incidents trigger BOTH AI Act Art. 73 AND DORA Art. 19 reporting",
+                "DORA timeline: Initial 4h → Intermediate 72h → Final 1 month (ITS 2024/2956 templates)",
+                "AI Act timeline: 15 days (2 days for death/imminent risk) to market surveillance authority",
+                "Identify DORA competent authority (EBA/ECB/EIOPA/ESMA depending on entity type)",
+                "Identify AI Act market surveillance authority (national market surveillance authority)",
+                "Establish coordinated reporting process to avoid conflicting information",
+                "Train incident response team on dual reporting obligations",
+                "Test dual reporting in incident response drills",
+            ],
+            category="resilience",
+            applies_to=["deployer", "third_party_user"],
+            summary="Serious AI incident may require BOTH DORA (4h/72h/1mo) AND AI Act (15 days/2 days) reports to different regulators.",
+            effort_level="medium",
+            legal_basis="DORA Art. 19: Major ICT incident → financial regulator (4h initial, 72h intermediate, 1 month final). AI Act Art. 73(1): Serious incident (death, health/safety harm, fundamental rights violation) → market surveillance authority within 15 days (2 days if death/imminent risk).",
+            what_it_means="If a high-risk AI system fails badly - e.g., credit AI crashes causing customers to be wrongly denied emergency credit during a crisis - you may need to report to both your financial regulator (DORA) AND the market surveillance authority (AI Act). The timelines differ: DORA is faster. Both reports must be consistent.",
+            evidence_required=[
+                "Dual reporting policy for AI incidents",
+                "Incident classification covering both DORA and AI Act triggers",
+                "Contact details for both DORA and AI Act reporting authorities",
+                "Test drill records for dual reporting scenarios",
+            ],
+            related_obligations=["ict_incident_management", "incident_reporting_timelines"],
+        )
+    )
+
     # 5. INFORMATION SHARING (Art. 45)
     obligations.append(
         Obligation(
@@ -3134,7 +4166,7 @@ def get_gpai_obligations(
             description="Providers of GPAI models must provide technical documentation, instructions for downstream providers, comply with copyright, and publish training content summary.",
             source_regulation="eu_ai_act",
             source_articles=["53(1)", "53(2)", "53(3)", "53(4)"],
-            deadline="2025-08-02",
+            deadline="2025-02-02",
             priority="critical",
             action_items=[
                 "Obtain or verify GPAI model documentation from provider",
@@ -3185,7 +4217,7 @@ def get_gpai_obligations(
             description="Deployers integrating GPAI models into high-risk AI systems must evaluate model capabilities, limitations, and risks for their specific use case.",
             source_regulation="eu_ai_act",
             source_articles=["55(1)", "55(2)"],
-            deadline="2025-08-02",
+            deadline="2025-02-02",
             priority="high",
             action_items=[
                 "Evaluate GPAI model capabilities for intended use case",
@@ -3238,7 +4270,7 @@ def get_gpai_obligations(
                 description="GPAI models with systemic risk (trained with >10^25 FLOPs or designated by Commission) have additional obligations including adversarial testing and serious incident reporting.",
                 source_regulation="eu_ai_act",
                 source_articles=["51(1)", "51(2)", "55(1)", "55(2)"],
-                deadline="2025-08-02",
+                deadline="2025-02-02",
                 priority="critical",
                 action_items=[
                     "Verify if GPAI model has systemic risk designation",
@@ -3290,7 +4322,7 @@ def get_gpai_obligations(
                 description="If you fine-tune a GPAI model, you may become a provider of a new AI system with full provider obligations including technical documentation and conformity assessment.",
                 source_regulation="eu_ai_act",
                 source_articles=["53(3)", "25(1)", "25(2)"],
-                deadline="2025-08-02",
+                deadline="2025-02-02",
                 priority="critical",
                 action_items=[
                     "Assess if fine-tuning creates a 'new' AI system",
@@ -3332,6 +4364,113 @@ def get_gpai_obligations(
                 related_obligations=["gpai_transparency", "technical_documentation", "conformity_assessment"],
             )
         )
+
+    # 5. GPAI COPYRIGHT/TDM COMPLIANCE (Art. 53(1)(c)) - All GPAI users
+    obligations.append(
+        Obligation(
+            id="gpai_copyright_tdm",
+            name="GPAI Copyright & Training Data Compliance (Art. 53(1)(c))",
+            description="GPAI providers must put in place a policy to comply with Union copyright law, including the text and data mining (TDM) exception in the DSM Directive Art. 4(3). Deployers must verify provider compliance.",
+            source_regulation="eu_ai_act",
+            source_articles=["53(1)(c)", "53(2)"],
+            deadline="2025-02-02",
+            priority="high",
+            action_items=[
+                "Obtain GPAI provider's copyright compliance statement",
+                "Verify provider has TDM opt-out policy",
+                "Review provider's training data summary (publicly available)",
+                "Assess whether your use case involves copyrighted content generation",
+                "Document copyright risk assessment for your specific integration",
+            ],
+            category="governance",
+            applies_to=["provider", "deployer"],
+            summary="Verify GPAI provider complies with EU copyright law for training data.",
+            effort_level="medium",
+            legal_basis="Article 53(1)(c): Providers of GPAI models shall put in place a policy to comply with Union law on copyright and related rights, including by identifying and honouring reservations of rights by rightholders under Article 4(3) of Directive 2019/790.",
+            what_it_means="GPAI providers must respect TDM opt-outs. As a deployer, you must verify your GPAI provider has a compliant copyright policy and understand your exposure if the provider is non-compliant.",
+            penalties="Up to €15 million or 3% of annual worldwide turnover for GPAI violations.",
+        )
+    )
+
+    # 6. GPAI COOPERATION WITH AUTHORITIES (Art. 54)
+    obligations.append(
+        Obligation(
+            id="gpai_cooperation_art54",
+            name="GPAI Cooperation with Competent Authorities (Art. 54)",
+            description="Providers and deployers of GPAI models must cooperate with national competent authorities and the AI Office, providing documentation, access to training data, and other information upon request.",
+            source_regulation="eu_ai_act",
+            source_articles=["54"],
+            deadline="2025-02-02",
+            priority="medium",
+            action_items=[
+                "Establish internal process for responding to authority requests",
+                "Maintain contact point for AI Office and national authorities",
+                "Ensure GPAI documentation is accessible for regulatory inspection",
+                "Define escalation procedure for authority inquiries",
+            ],
+            category="governance",
+            applies_to=["provider", "deployer"],
+            summary="Be ready to cooperate with EU AI Office and national authorities on GPAI.",
+            effort_level="low",
+            legal_basis="Article 54: Providers of general-purpose AI models shall cooperate with the Commission and national competent authorities in the exercise of their competences under this Regulation.",
+            what_it_means="If the AI Office or national regulator requests information about your GPAI usage or integration, you must provide it. This includes access to documentation, testing results, and deployment details.",
+            penalties="Up to €15 million or 3% of annual worldwide turnover.",
+        )
+    )
+
+    # 7. GPAI ENERGY EFFICIENCY (Art. 55(1)(d)) - Systemic risk GPAI
+    if gpai_with_systemic_risk:
+        obligations.append(
+            Obligation(
+                id="gpai_energy_efficiency_art55",
+                name="GPAI Energy Efficiency Reporting (Art. 55(1)(d))",
+                description="Providers of GPAI models with systemic risk must assess and mitigate possible systemic risks, including measures to ensure energy efficiency and reduce the environmental footprint of model training and deployment.",
+                source_regulation="eu_ai_act",
+                source_articles=["55(1)(d)"],
+                deadline="2025-02-02",
+                priority="medium",
+                action_items=[
+                    "Obtain GPAI provider's energy consumption metrics",
+                    "Document energy efficiency measures implemented by provider",
+                    "Assess carbon footprint of GPAI usage in your systems",
+                    "Consider energy efficiency in GPAI model selection decisions",
+                    "Report energy metrics as part of CSRD/sustainability reporting if applicable",
+                ],
+                category="governance",
+                applies_to=["provider", "deployer"],
+                summary="Track and report energy consumption of systemic-risk GPAI models.",
+                effort_level="medium",
+                legal_basis="Article 55(1)(d): Providers of GPAI models with systemic risk shall assess and mitigate possible systemic risks, including measures to ensure energy efficiency.",
+                what_it_means="Using frontier AI models has energy implications. Providers of systemic-risk GPAI must assess and mitigate energy risks. As a deployer, you should track your consumption and factor it into sustainability disclosures.",
+                penalties="Up to €35 million or 7% for systemic risk GPAI violations.",
+            )
+        )
+
+    # 8. GPAI CODES OF PRACTICE (Art. 56) - All GPAI
+    obligations.append(
+        Obligation(
+            id="gpai_codes_of_practice_art56",
+            name="GPAI Codes of Practice (Art. 56)",
+            description="GPAI providers and deployers are encouraged to participate in the development of codes of practice under Art. 56, which elaborate obligations under Art. 53 and 55 and may be used to demonstrate compliance.",
+            source_regulation="eu_ai_act",
+            source_articles=["56"],
+            deadline="2025-05-02",
+            priority="low",
+            action_items=[
+                "Monitor EU AI Office publication of GPAI codes of practice",
+                "Assess applicability of published codes to your GPAI integration",
+                "Consider participation in code development if you are a provider",
+                "Adopt relevant codes to demonstrate compliance with Art. 53/55",
+            ],
+            category="governance",
+            applies_to=["provider", "deployer"],
+            summary="Follow GPAI codes of practice developed by EU AI Office to demonstrate compliance.",
+            effort_level="low",
+            legal_basis="Article 56: The AI Office and national competent authorities shall encourage and facilitate the drawing up of codes of practice for general-purpose AI models.",
+            what_it_means="The EU AI Office is developing codes of practice for GPAI. Adopting these codes is the primary way to demonstrate compliance with GPAI obligations. Monitor and adopt relevant codes when published.",
+            penalties="None directly, but non-participation may signal non-compliance.",
+        )
+    )
 
     return obligations
 
@@ -3829,18 +4968,31 @@ def get_sectoral_obligations(
 
 
 def build_compliance_timeline(obligations: List[Obligation]) -> List[dict]:
-    timeline = []
-    seen = set()
+    # Anchor EU AI Act milestones (always included for context)
+    anchor_events = [
+        {"date": "2025-02-02", "event": "Art. 5 prohibited practices + GPAI obligations applicable (EU AI Act)", "impact": "critical"},
+        {"date": "2025-08-02", "event": "Notified bodies designated for high-risk AI conformity assessments (EU AI Act Art. 33)", "impact": "high"},
+        {"date": "2026-08-02", "event": "High-risk AI systems (Annex III) and all other obligations apply (EU AI Act)", "impact": "critical"},
+        {"date": "2027-08-02", "event": "High-risk AI in Annex I products (machinery, medical devices) must comply (EU AI Act Art. 6(1))", "impact": "high"},
+        {"date": "2030-08-02", "event": "Grandfather clause expires: all existing high-risk AI systems must comply (EU AI Act)", "impact": "high"},
+    ]
+
+    timeline = list(anchor_events)
+    seen = {e["date"] for e in anchor_events}
+
     for obligation in obligations:
         if obligation.deadline and obligation.deadline not in seen:
             timeline.append(
                 {
                     "date": obligation.deadline,
-                    "event": f"Compliance deadline for {obligation.source_regulation.upper()}",
-                    "impact": "critical",
+                    "event": f"Compliance deadline: {obligation.name} ({obligation.source_regulation.upper()})",
+                    "impact": obligation.priority if obligation.priority in ["critical", "high", "medium", "low"] else "medium",
                 }
             )
             seen.add(obligation.deadline)
+
+    # Sort by date
+    timeline.sort(key=lambda x: x["date"])
     return timeline
 
 
@@ -3853,8 +5005,6 @@ def get_classification_basis(request: ObligationRequest) -> str:
         AIUseCase.LOAN_ORIGINATION: "Annex III, point 5(b) - access to and enjoyment of essential private services (credit)",
         AIUseCase.MORTGAGE_UNDERWRITING: "Annex III, point 5(b) - access to and enjoyment of essential private services (credit)",
         # Annex III point 5(c) - Life and health insurance ONLY
-        AIUseCase.INSURANCE_PRICING: "Annex III, point 5(c) - life and health insurance risk assessment (NOT property/liability)",
-        AIUseCase.INSURANCE_UNDERWRITING: "Annex III, point 5(c) - life and health insurance risk assessment (NOT property/liability)",
         # Annex III point 4 - Employment
         AIUseCase.CV_SCREENING: "Annex III, point 4(a) - recruitment and selection of natural persons",
         AIUseCase.CANDIDATE_RANKING: "Annex III, point 4(a) - recruitment and selection of natural persons",
@@ -3892,12 +5042,17 @@ def get_warnings(request: ObligationRequest) -> List[str]:
         AIUseCase.CUSTOMER_ONBOARDING,
     ]
     
-    # Insurance-specific warning
-    if request.use_case in [AIUseCase.INSURANCE_PRICING, AIUseCase.INSURANCE_UNDERWRITING]:
+    # Insurance-specific warning for generic/property/motor types
+    if request.use_case in [
+        AIUseCase.INSURANCE_PRICING_PROPERTY,
+        AIUseCase.INSURANCE_PRICING_MOTOR,
+        AIUseCase.INSURANCE_PRICING_LIABILITY,
+        AIUseCase.INSURANCE_UNDERWRITING_PROPERTY,
+    ]:
         warnings.append(
             "⚠️ IMPORTANT: Annex III point 5(c) only covers LIFE and HEALTH insurance. "
-            "Property/liability insurance pricing is NOT automatically high-risk. "
-            "Verify your specific insurance type."
+            "Property/motor/liability insurance pricing is NOT automatically high-risk. "
+            "This use case is context-dependent - assess impact on natural persons."
         )
     
     # AML/KYC can be high-risk if it denies access
@@ -4191,34 +5346,6 @@ def get_all_use_case_profiles() -> dict:
             "key_obligations": [
                 "Market manipulation prevention",
                 "Risk controls",
-            ],
-        },
-        AIUseCase.INSURANCE_PRICING: {
-            "label": "Insurance Pricing (Life/Health)",
-            "category": "insurance",
-            "description": "AI for LIFE and HEALTH insurance risk assessment and premium setting. ⚠️ Note: ONLY life/health insurance is explicitly high-risk under Annex III 5(c). Property, motor, and other non-life insurance may be context-dependent.",
-            "risk_level": "high_risk",
-            "ai_act_reference": "Annex III, point 5(c) - specifically life and health insurance",
-            "related_regulations": ["Solvency II", "IDD", "GDPR Art. 22"],
-            "typical_actors": ["life insurers", "health insurers", "reinsurers"],
-            "key_obligations": [
-                "Conformity assessment (Art. 43)",
-                "Human oversight (Art. 14)",
-                "FRAIA (Art. 27) - MANDATORY",
-                "DPIA under GDPR",
-            ],
-        },
-        AIUseCase.INSURANCE_UNDERWRITING: {
-            "label": "Insurance Underwriting (Life/Health)",
-            "category": "insurance",
-            "description": "AI for LIFE and HEALTH insurance underwriting decisions. ⚠️ Note: Only life/health is explicitly high-risk. Other lines may be context-dependent.",
-            "risk_level": "high_risk",
-            "ai_act_reference": "Annex III, point 5(c) - specifically life and health insurance",
-            "related_regulations": ["Solvency II", "IDD", "GDPR Art. 22"],
-            "typical_actors": ["insurers"],
-            "key_obligations": [
-                "Conformity assessment (Art. 43)",
-                "Non-discrimination safeguards",
             ],
         },
         AIUseCase.CLAIMS_PROCESSING: {

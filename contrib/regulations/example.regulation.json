@@ -1,0 +1,17 @@
+{
+  "id": "eudataact-2023-2854",
+  "name": "EU Data Act",
+  "jurisdiction": "EU",
+  "type": "Regulation",
+  "status": "in_force",
+  "effective_date": "2025-09-12",
+  "summary": "Horizontal regulation affecting data access, sharing, and portability obligations.",
+  "why_relevant": "Can affect governance and data-sharing obligations for AI systems in financial services.",
+  "source_url": "https://eur-lex.europa.eu/eli/reg/2023/2854/oj",
+  "candidate_scope": [
+    "data_governance",
+    "portability",
+    "cloud_switching"
+  ],
+  "maintainer_notes": "Needs mapping decision on overlap with GDPR and DORA obligations."
+}

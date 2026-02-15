@@ -1,0 +1,24 @@
+name: Add regulation
+about: Propose a new regulation for future mapping
+labels: ["contribution", "regulation"]
+body:
+  - type: input
+    id: regulation_name
+    attributes:
+      label: Regulation name
+      placeholder: e.g., EU Data Act
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: Official source URL
+      placeholder: https://eur-lex.europa.eu/...
+    validations:
+      required: true
+  - type: textarea
+    id: relevance
+    attributes:
+      label: Why this matters for AI compliance
+    validations:
+      required: true
