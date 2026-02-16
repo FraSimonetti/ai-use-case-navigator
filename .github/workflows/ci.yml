@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: pip install -r services/api/requirements.txt
+      - name: Install backend test dependencies
+        run: pip install pytest
+      - name: Validate contribution files
+        run: python3 scripts/validate_contributions.py
+      - name: Compile backend modules
+        run: python3 -m compileall -q services/api
+      - name: Import API app
+        run: python3 -c "from services.api.main import app; print(app.title)"
+      - name: Run backend tests
+        run: pytest -q
+
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run frontend tests
+        run: npm run test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build

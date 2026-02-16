@@ -3,6 +3,7 @@
 html,
 body {
   height: 100%;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 /* Print styles for PDF export */

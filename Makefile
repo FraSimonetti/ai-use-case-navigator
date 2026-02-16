@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help setup backend frontend dev rebuild-vectors validate-contributions clean
+.PHONY: help setup backend frontend dev rebuild-vectors validate-contributions test-backend test-frontend clean
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,8 @@ help:
 	@echo "  make dev              Show two-terminal dev workflow"
 	@echo "  make rebuild-vectors  Rebuild local vector store embeddings"
 	@echo "  make validate-contributions  Validate contrib JSON templates"
+	@echo "  make test-backend     Run backend smoke tests"
+	@echo "  make test-frontend    Run frontend route smoke tests"
 	@echo "  make clean            Remove local build artifacts"
 
 setup:
@@ -31,6 +33,12 @@ rebuild-vectors:
 
 validate-contributions:
 	python3 scripts/validate_contributions.py
+
+test-backend:
+	source .venv/bin/activate && pytest -q
+
+test-frontend:
+	cd apps/web && npm run test
 
 clean:
 	rm -rf apps/web/.next apps/web/node_modules .venv

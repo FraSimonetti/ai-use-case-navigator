@@ -1,12 +1,9 @@
 import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Sidebar } from '@/components/sidebar'
 import { MobileNav } from '@/components/mobile-nav'
 import './globals.css'
-
-const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'RegolAI - EU AI Act Navigator',
@@ -16,7 +13,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body>
         <ThemeProvider attribute="class" defaultTheme="light">
           <div className="flex flex-col lg:flex-row h-screen">
             <MobileNav />

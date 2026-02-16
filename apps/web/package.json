@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "test": "npm run test:routes",
+    "test:routes": "node --test tests/routes.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck"
   },
   "keywords": [],
   "author": "",

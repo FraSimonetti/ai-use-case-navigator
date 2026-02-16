@@ -122,6 +122,8 @@ make backend
 make frontend
 make rebuild-vectors
 make validate-contributions
+make test-backend
+make test-frontend
 ```
 
 ## Build / Rebuild Vector Store
@@ -220,7 +222,18 @@ Typical setup:
 ## Contributing
 
 See:
+- `CONTRIBUTING.md`
 - `docs/guides/contributing.md`
+
+## Community Standards
+
+See:
+- `CODE_OF_CONDUCT.md`
+
+## Security
+
+See:
+- `SECURITY.md`
 
 ## Documentation
 
